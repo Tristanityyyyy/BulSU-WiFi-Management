@@ -1,36 +1,21 @@
-/**
- * BulSU Wi-Fi Admin — Express Routes
- * Mount with: app.use('/api/admin', adminRouter)
- * All routes require: verifyToken + requireAdmin middleware
- *
- * verifyToken: checks Authorization: Bearer <jwt>, attaches req.user
- * requireAdmin: checks req.user.role === 'admin', else 403
- */
-
 const express = require('express');
 const router = express.Router();
-const db = require('../db');          // mysql2 pool or Sequelize models
+const db = require('../db');
 const bcrypt = require('bcrypt');
 const { RouterOSAPI } = require('node-routeros');
-
-// ─── Middleware ────────────────────────────────────────────────────────────────
 const { verifyToken, requireAdmin } = require('../middleware/auth');
+
 router.use(verifyToken, requireAdmin);
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-// GET /api/admin/overview/stats
-// Response: { totalUsers, activeSessions, activeGuests, bandwidthMbps }
 router.get('/overview/stats', async (req, res) => {
   const [[{ totalUsers }]] = await db.query('SELECT COUNT(*) AS totalUsers FROM users WHERE role = "student"');
   const [[{ activeSessions }]] = await db.query('SELECT COUNT(*) AS activeSessions FROM sessions WHERE status = "active"');
   const [[{ activeGuests }]] = await db.query('SELECT COUNT(*) AS activeGuests FROM guest_sessions WHERE status = "active"');
-  // bandwidthMbps: pull from RouterOS or return 0 as placeholder
   res.json({ totalUsers, activeSessions, activeGuests, bandwidthMbps: 0 });
 });
 
-// GET /api/admin/overview/connected
-// Response: [{ session_id, full_name, student_number, mac_address, ip_address, login_time }]
 router.get('/overview/connected', async (req, res) => {
   const [rows] = await db.query(`
     SELECT s.id AS session_id, u.full_name, u.student_number, d.mac_address, s.ip_address, s.login_time
@@ -43,8 +28,6 @@ router.get('/overview/connected', async (req, res) => {
   res.json(rows);
 });
 
-// GET /api/admin/overview/peak-hours
-// Response: { labels: ['00:00',...], data: [12,...] }
 router.get('/overview/peak-hours', async (req, res) => {
   const [rows] = await db.query(`
     SELECT HOUR(login_time) AS hour, COUNT(*) AS count
@@ -53,15 +36,11 @@ router.get('/overview/peak-hours', async (req, res) => {
     GROUP BY HOUR(login_time)
     ORDER BY hour
   `);
-  const labels = rows.map((r) => `${String(r.hour).padStart(2, '0')}:00`);
-  const data = rows.map((r) => r.count);
-  res.json({ labels, data });
+  res.json({ labels: rows.map((r) => `${String(r.hour).padStart(2, '0')}:00`), data: rows.map((r) => r.count) });
 });
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
-// GET /api/admin/users?page&limit&search&status&enrollment_status
-// Response: { users: [...], total }
 router.get('/users', async (req, res) => {
   const { page = 1, limit = 20, search = '', status = '', enrollment_status = '' } = req.query;
   const offset = (page - 1) * limit;
@@ -74,8 +53,6 @@ router.get('/users', async (req, res) => {
   res.json({ users, total });
 });
 
-// POST /api/admin/users
-// Body: { student_number, full_name, course_section, enrollment_status, password }
 router.post('/users', async (req, res) => {
   const { student_number, full_name, course_section, enrollment_status, password } = req.body;
   const hashed = await bcrypt.hash(password, 10);
@@ -86,8 +63,6 @@ router.post('/users', async (req, res) => {
   res.status(201).json({ id: result.insertId });
 });
 
-// PUT /api/admin/users/:id
-// Body: { full_name, course_section, enrollment_status }
 router.put('/users/:id', async (req, res) => {
   const { full_name, course_section, enrollment_status } = req.body;
   await db.query('UPDATE users SET full_name=?, course_section=?, enrollment_status=? WHERE id=?',
@@ -95,31 +70,24 @@ router.put('/users/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// PATCH /api/admin/users/:id/block
 router.patch('/users/:id/block', async (req, res) => {
   await db.query('UPDATE users SET status="blocked" WHERE id=?', [req.params.id]);
   res.json({ ok: true });
 });
 
-// PATCH /api/admin/users/:id/unblock
 router.patch('/users/:id/unblock', async (req, res) => {
   await db.query('UPDATE users SET status="active" WHERE id=?', [req.params.id]);
   res.json({ ok: true });
 });
 
-// POST /api/admin/users/:id/disconnect
 router.post('/users/:id/disconnect', async (req, res) => {
   const [[session]] = await db.query('SELECT id FROM sessions WHERE user_id=? AND status="active" LIMIT 1', [req.params.id]);
   if (session) {
     await db.query('UPDATE sessions SET status="force-disconnected", logout_time=NOW(), logout_reason="force_disconnect" WHERE id=?', [session.id]);
-    // TODO: call RouterOS to remove hotspot user
   }
   res.json({ ok: true });
 });
 
-// POST /api/admin/users/csv-import
-// Body: { rows: [{ student_number, full_name, course_section, enrollment_status }] }
-// Response: { success, failed, import_id }
 router.post('/users/csv-import', async (req, res) => {
   const { rows } = req.body;
   let success = 0, failed = 0;
@@ -142,8 +110,6 @@ router.post('/users/csv-import', async (req, res) => {
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
-// GET /api/admin/sessions?page&limit&date_from&date_to&status&logout_reason
-// Response: { sessions: [...], total }
 router.get('/sessions', async (req, res) => {
   const { page = 1, limit = 20, date_from, date_to, status = '', logout_reason = '' } = req.query;
   const offset = (page - 1) * limit;
@@ -166,7 +132,6 @@ router.get('/sessions', async (req, res) => {
   res.json({ sessions, total });
 });
 
-// GET /api/admin/sessions/export — same filters, no pagination
 router.get('/sessions/export', async (req, res) => {
   const { date_from, date_to, status = '', logout_reason = '' } = req.query;
   const params = [];
@@ -185,8 +150,6 @@ router.get('/sessions/export', async (req, res) => {
   res.json(rows);
 });
 
-// GET /api/admin/guest-sessions?page&limit&date_from&date_to&status
-// Response: { sessions: [...], total }
 router.get('/guest-sessions', async (req, res) => {
   const { page = 1, limit = 20, date_from, date_to, status = '' } = req.query;
   const offset = (page - 1) * limit;
@@ -206,7 +169,6 @@ router.get('/guest-sessions', async (req, res) => {
   res.json({ sessions, total });
 });
 
-// GET /api/admin/guest-sessions/export
 router.get('/guest-sessions/export', async (req, res) => {
   const { date_from, date_to, status = '' } = req.query;
   const params = [];
@@ -225,8 +187,6 @@ router.get('/guest-sessions/export', async (req, res) => {
 
 // ─── Guests ───────────────────────────────────────────────────────────────────
 
-// GET /api/admin/guests?page&limit
-// Response: { guests: [...], total }
 router.get('/guests', async (req, res) => {
   const { page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
@@ -235,9 +195,6 @@ router.get('/guests', async (req, res) => {
   res.json({ guests, total });
 });
 
-// POST /api/admin/guests
-// Body: { guest_name, duration_minutes }
-// Response: { id, guest_name, qr_code, expires_at, status }
 router.post('/guests', async (req, res) => {
   const { guest_name, duration_minutes = 60 } = req.body;
   const crypto = require('crypto');
@@ -250,16 +207,13 @@ router.post('/guests', async (req, res) => {
   res.status(201).json({ id: result.insertId, guest_name, qr_code, expires_at, status: 'active' });
 });
 
-// PATCH /api/admin/guests/:id/revoke
 router.patch('/guests/:id/revoke', async (req, res) => {
   await db.query('UPDATE guests SET status="expired" WHERE id=?', [req.params.id]);
   res.json({ ok: true });
 });
 
-// ─── Emergency Priority ───────────────────────────────────────────────────────
+// ─── Emergency ────────────────────────────────────────────────────────────────
 
-// GET /api/admin/emergency?page&limit
-// Response: { priorities: [...], total }
 router.get('/emergency', async (req, res) => {
   const { page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
@@ -268,8 +222,6 @@ router.get('/emergency', async (req, res) => {
   res.json({ priorities, total });
 });
 
-// POST /api/admin/emergency
-// Body: { user_id, reason }
 router.post('/emergency', async (req, res) => {
   const { user_id, reason } = req.body;
   const [result] = await db.query(
@@ -279,7 +231,6 @@ router.post('/emergency', async (req, res) => {
   res.status(201).json({ id: result.insertId });
 });
 
-// PATCH /api/admin/emergency/:id/deactivate
 router.patch('/emergency/:id/deactivate', async (req, res) => {
   await db.query('UPDATE emergency_priority SET status="ended", deactivated_at=NOW() WHERE id=?', [req.params.id]);
   res.json({ ok: true });
@@ -287,8 +238,6 @@ router.patch('/emergency/:id/deactivate', async (req, res) => {
 
 // ─── Feedback ─────────────────────────────────────────────────────────────────
 
-// GET /api/admin/feedback?page&limit
-// Response: { feedback: [...], total }
 router.get('/feedback', async (req, res) => {
   const { page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
@@ -297,8 +246,6 @@ router.get('/feedback', async (req, res) => {
   res.json({ feedback, total });
 });
 
-// GET /api/admin/feedback/aggregate
-// Response: { average, total, distribution: { 1: n, 2: n, ... } }
 router.get('/feedback/aggregate', async (req, res) => {
   const [[{ average, total }]] = await db.query('SELECT AVG(rating) AS average, COUNT(*) AS total FROM feedback');
   const [dist] = await db.query('SELECT rating, COUNT(*) AS count FROM feedback GROUP BY rating');
@@ -309,8 +256,6 @@ router.get('/feedback/aggregate', async (req, res) => {
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
-// GET /api/admin/notifications?page&limit&type&is_read
-// Response: { notifications: [...], total }
 router.get('/notifications', async (req, res) => {
   const { page = 1, limit = 20, type = '', is_read = '' } = req.query;
   const offset = (page - 1) * limit;
@@ -323,8 +268,6 @@ router.get('/notifications', async (req, res) => {
   res.json({ notifications, total });
 });
 
-// POST /api/admin/notifications/send
-// Body: { target: 'user'|'section'|'all', user_id?, course_section?, message }
 router.post('/notifications/send', async (req, res) => {
   const { target, user_id, course_section, message } = req.body;
   let userIds = [];
@@ -346,8 +289,6 @@ router.post('/notifications/send', async (req, res) => {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-// GET /api/admin/settings
-// Response: { session_timeout_minutes: 60, bandwidth_cap_mbps: 10, ... }
 router.get('/settings', async (req, res) => {
   const [rows] = await db.query('SELECT setting_key, setting_value FROM settings');
   const result = {};
@@ -355,8 +296,6 @@ router.get('/settings', async (req, res) => {
   res.json(result);
 });
 
-// PUT /api/admin/settings
-// Body: { session_timeout_minutes: 60, ... }
 router.put('/settings', async (req, res) => {
   const entries = Object.entries(req.body);
   for (const [key, value] of entries) {

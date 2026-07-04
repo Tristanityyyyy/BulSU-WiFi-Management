@@ -34,6 +34,12 @@ export default function LoginPage() {
     setLoading(true);
 
     // TEST ACCOUNT — remove before production
+    if (username === "admin" && password === "admin123") {
+      localStorage.setItem("adminToken", JSON.stringify({ role: "admin" }));
+      navigate("/admin/overview");
+      return;
+    }
+
     if (username === "student" && password === "student123") {
       localStorage.setItem("token", "test-token");
       goToDashboard();
@@ -42,8 +48,13 @@ export default function LoginPage() {
 
     try {
       const res = await axios.post(`${API_BASE}/auth/login`, { username, password });
-      localStorage.setItem("token", res.data.token);
-      goToDashboard();
+      if (res.data.role === "admin") {
+        localStorage.setItem("adminToken", JSON.stringify({ role: "admin" }));
+        navigate("/admin/overview");
+      } else {
+        localStorage.setItem("token", res.data.token);
+        goToDashboard();
+      }
     } catch (err) {
       setError(err.response?.data?.message || "Invalid username or password.");
       setLoading(false);

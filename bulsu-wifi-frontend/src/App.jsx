@@ -21,7 +21,7 @@ function App() {
       <Route path="/" element={<LoginPage />} />
       <Route path="/guest" element={<GuestVerify />} />
       <Route path="/dashboard" element={<SessionDashboard />} />
-      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/login" element={<Navigate to="/" replace />} />
       <Route path="/admin" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/admin/overview" replace />} />
         <Route path="overview" element={<AdminOverview />} />
