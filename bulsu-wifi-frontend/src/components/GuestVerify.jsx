@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { CheckCircle2, Clock, XCircle } from "lucide-react";
 import axios from "axios";
 import LoadingSpinner from "./ui/LoadingSpinner";
 import BulsuHeader from "./layout/BulsuHeader";
@@ -56,14 +57,16 @@ export default function GuestVerify() {
 
         {status === "verifying" && (
           <div className="flex flex-col items-center gap-3">
-            <LoadingSpinner color="border-red-900" />
+            <LoadingSpinner className="text-red-900" />
             <p className="text-gray-600 text-sm">Verifying your QR code...</p>
           </div>
         )}
 
         {status === "success" && (
           <div>
-            <div className="text-5xl mb-3">✅</div>
+            <div className="flex justify-center mb-3">
+              <CheckCircle2 size={52} className="text-green-600" strokeWidth={1.5} />
+            </div>
             <p className="text-green-700 font-semibold text-base mb-1">Connected!</p>
             <p className="text-gray-600 text-sm mb-4">
               Welcome, <span className="font-medium">{guestName}</span>. You now have guest Wi-Fi access.
@@ -80,7 +83,9 @@ export default function GuestVerify() {
 
         {status === "expired" && (
           <div>
-            <div className="text-5xl mb-3">⏰</div>
+            <div className="flex justify-center mb-3">
+              <Clock size={52} className="text-orange-500" strokeWidth={1.5} />
+            </div>
             <p className="text-orange-600 font-semibold text-base mb-2">Session Expired</p>
             <p className="text-gray-500 text-sm">Please return to the registration desk for a new QR code.</p>
           </div>
@@ -88,7 +93,9 @@ export default function GuestVerify() {
 
         {status === "error" && (
           <div>
-            <div className="text-5xl mb-3">❌</div>
+            <div className="flex justify-center mb-3">
+              <XCircle size={52} className="text-red-600" strokeWidth={1.5} />
+            </div>
             <p className="text-red-700 font-semibold text-base mb-2">Access Denied</p>
             <p className="text-gray-500 text-sm">{message}</p>
           </div>

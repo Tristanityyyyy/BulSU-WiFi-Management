@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { MessageSquare } from "lucide-react";
 import axios from "axios";
 import PageBackground from "./layout/PageBackground";
 import Card from "./layout/Card";
@@ -83,7 +84,7 @@ export default function LoginPage() {
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="e.g. 2023-12345"
+            placeholder="e.g. 2023123456"
             className="w-full border border-pink-200 rounded-xl px-3 py-2.5 mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
             required
           />
@@ -115,8 +116,9 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => setShowFeedback(true)}
-            className="text-xs text-pink-500 hover:text-pink-700 underline underline-offset-2 transition"
+            className="inline-flex items-center gap-1.5 text-xs text-pink-500 hover:text-pink-700 underline underline-offset-2 transition"
           >
+            <MessageSquare size={13} />
             Submit a Feedback
           </button>
         </div>

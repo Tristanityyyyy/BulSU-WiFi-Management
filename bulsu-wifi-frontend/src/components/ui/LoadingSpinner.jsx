@@ -1,5 +1,5 @@
-export default function LoadingSpinner({ color = "border-white" }) {
-  return (
-    <div className={`w-10 h-10 border-4 ${color} border-t-transparent rounded-full animate-spin`} />
-  );
+import { Loader2 } from "lucide-react";
+
+export default function LoadingSpinner({ size = 40, className = "text-pink-500" }) {
+  return <Loader2 size={size} className={`animate-spin ${className}`} />;
 }

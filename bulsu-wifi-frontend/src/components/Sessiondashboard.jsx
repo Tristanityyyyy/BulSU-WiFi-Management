@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Wifi } from "lucide-react";
 import axios from "axios";
 import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
@@ -108,7 +109,7 @@ export default function SessionDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-900 via-pink-700 to-rose-500">
-        <LoadingSpinner />
+        <LoadingSpinner className="text-white" />
       </div>
     );
   }
@@ -134,7 +135,7 @@ export default function SessionDashboard() {
             <p className="text-xs sm:text-sm text-pink-400">{session?.username || "BulSU Wi-Fi"}</p>
           </div>
           <span className="flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <Wifi size={11} className="text-green-600" />
             Online
           </span>
         </div>
