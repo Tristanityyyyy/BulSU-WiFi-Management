@@ -5,6 +5,13 @@ import AdminTable from "./AdminTable";
 
 const PAGE_SIZE = 20;
 
+const TABS = [
+  { key: "student", label: "Student" },
+  { key: "faculty", label: "Faculty" },
+  { key: "staff",   label: "Staff" },
+  { key: "guest",   label: "Guest" },
+];
+
 function toCSV(rows) {
   if (!rows.length) return "";
   const headers = Object.keys(rows[0]).join(",");
@@ -20,8 +27,22 @@ function downloadCSV(data, filename) {
   URL.revokeObjectURL(url);
 }
 
+function StatusBadge({ status }) {
+  const map = {
+    active: "bg-green-50 text-green-700 border-green-200",
+    ended: "bg-gray-100 text-gray-500 border-gray-200",
+    "force-disconnected": "bg-red-50 text-red-600 border-red-200",
+    timeout: "bg-orange-50 text-orange-600 border-orange-200",
+  };
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${map[status] ?? "bg-gray-100 text-gray-500"}`}>
+      {status}
+    </span>
+  );
+}
+
 export default function AdminSessions() {
-  const [tab, setTab] = useState("student"); // 'student' | 'guest'
+  const [tab, setTab] = useState("student");
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -31,13 +52,15 @@ export default function AdminSessions() {
   const [status, setStatus] = useState("");
   const [logoutReason, setLogoutReason] = useState("");
 
+  const isGuest = tab === "guest";
+
   const fetchSessions = async (p = page) => {
     setLoading(true);
     try {
-      const endpoint = tab === "student" ? "/admin/sessions" : "/admin/guest-sessions";
-      const res = await adminApi.get(endpoint, {
-        params: { page: p, limit: PAGE_SIZE, date_from: dateFrom, date_to: dateTo, status, logout_reason: logoutReason },
-      });
+      const endpoint = isGuest ? "/admin/sessions/guests" : "/admin/sessions";
+      const params = { page: p, limit: PAGE_SIZE, date_from: dateFrom, date_to: dateTo, status };
+      if (!isGuest) { params.role = tab; params.logout_reason = logoutReason; }
+      const res = await adminApi.get(endpoint, { params });
       setRows(res.data.sessions);
       setTotal(res.data.total);
     } finally {
@@ -49,29 +72,28 @@ export default function AdminSessions() {
   useEffect(() => { fetchSessions(page); }, [page]);
 
   const handleExport = async () => {
-    const endpoint = tab === "student" ? "/admin/sessions/export" : "/admin/guest-sessions/export";
-    const res = await adminApi.get(endpoint, {
-      params: { date_from: dateFrom, date_to: dateTo, status, logout_reason: logoutReason },
-    });
+    const endpoint = isGuest ? "/admin/sessions/guests/export" : "/admin/sessions/export";
+    const params = { date_from: dateFrom, date_to: dateTo, status };
+    if (!isGuest) { params.role = tab; params.logout_reason = logoutReason; }
+    const res = await adminApi.get(endpoint, { params });
     downloadCSV(toCSV(res.data), `${tab}-sessions-${Date.now()}.csv`);
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const studentCols = ["User", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status", "Reason"];
+  const userCols = ["Name", "ID / Number", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status", "Reason"];
   const guestCols = ["Guest Name", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status"];
 
-  const studentRows = rows.map((s) => (
+  const userRows = rows.map((s) => (
     <>
-      <td className="px-4 py-2 text-gray-800">{s.full_name ?? s.student_number}</td>
+      <td className="px-4 py-2 text-gray-800">{s.full_name}</td>
+      <td className="px-4 py-2 text-xs text-gray-500">{s.student_number ?? "—"}</td>
       <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.mac_address}</td>
       <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.ip_address}</td>
       <td className="px-4 py-2 text-xs text-gray-500">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-500">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-600">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
-      <td className="px-4 py-2">
-        <StatusBadge status={s.status} />
-      </td>
+      <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
       <td className="px-4 py-2 text-xs text-gray-500">{s.logout_reason ?? "—"}</td>
     </>
   ));
@@ -99,11 +121,13 @@ export default function AdminSessions() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2">
-        {["student", "guest"].map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition ${tab === t ? "bg-pink-600 text-white shadow" : "bg-white border border-pink-200 text-gray-600 hover:bg-pink-50"}`}>
-            {t === "student" ? "Student Sessions" : "Guest Sessions"}
+      <div className="flex gap-2 flex-wrap">
+        {TABS.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
+              tab === t.key ? "bg-pink-600 text-white shadow" : "bg-white border border-pink-200 text-gray-600 hover:bg-pink-50"
+            }`}>
+            {t.label}
           </button>
         ))}
       </div>
@@ -122,7 +146,7 @@ export default function AdminSessions() {
           <option value="force-disconnected">Force-Disconnected</option>
           <option value="timeout">Timeout</option>
         </select>
-        {tab === "student" && (
+        {!isGuest && (
           <select value={logoutReason} onChange={(e) => setLogoutReason(e.target.value)}
             className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
             <option value="">All Reasons</option>
@@ -135,29 +159,15 @@ export default function AdminSessions() {
       </div>
 
       <AdminTable
-        columns={tab === "student" ? studentCols : guestCols}
-        rows={tab === "student" ? studentRows : guestRows}
+        columns={isGuest ? guestCols : userCols}
+        rows={isGuest ? guestRows : userRows}
         loading={loading}
         page={page}
         totalPages={totalPages}
         onPage={setPage}
-        emptyText={tab === "student" ? "No student sessions found." : "No guest sessions found."}
+        emptyText={`No ${tab} sessions found.`}
         emptyHint="Try adjusting the date range or status filter."
       />
     </div>
-  );
-}
-
-function StatusBadge({ status }) {
-  const map = {
-    active: "bg-green-50 text-green-700 border-green-200",
-    ended: "bg-gray-100 text-gray-500 border-gray-200",
-    "force-disconnected": "bg-red-50 text-red-600 border-red-200",
-    timeout: "bg-orange-50 text-orange-600 border-orange-200",
-  };
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${map[status] ?? "bg-gray-100 text-gray-500"}`}>
-      {status}
-    </span>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { QrCode, Ban, X } from "lucide-react";
+import { QrCode, Ban, X, Printer } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import ConfirmDialog from "./ConfirmDialog";
@@ -13,7 +13,8 @@ export default function AdminGuests() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ guest_name: "", duration_minutes: 60 });
+  const [defaultDataGb, setDefaultDataGb] = useState(1);
+  const [form, setForm] = useState({ duration_minutes: 60, data_limit_gb: 1 });
   const [generating, setGenerating] = useState(false);
   const [newGuest, setNewGuest] = useState(null);
   const [confirm, setConfirm] = useState(null);
@@ -28,6 +29,15 @@ export default function AdminGuests() {
       setLoading(false);
     }
   };
+
+  // Pull the default guest data limit from settings
+  useEffect(() => {
+    adminApi.get("/admin/settings").then((res) => {
+      const gb = parseFloat(res.data.guest_data_limit_gb) || 1;
+      setDefaultDataGb(gb);
+      setForm((f) => ({ ...f, data_limit_gb: gb }));
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => { fetchGuests(page); }, [page]);
 
@@ -51,11 +61,27 @@ export default function AdminGuests() {
     fetchGuests(page);
   };
 
+  const handlePrint = () => {
+    const qrUrl = `${GUEST_PORTAL}?token=${newGuest.qr_code}`;
+    const win = window.open("", "_blank");
+    win.document.write(`
+      <html><body style="display:flex;flex-direction:column;align-items:center;font-family:sans-serif;padding:32px">
+        <h2 style="margin-bottom:4px">BulSU Guest Wi-Fi</h2>
+        <p style="color:#888;margin-bottom:16px;font-size:13px">Scan to connect — valid for ${form.duration_minutes} min / ${newGuest.data_limit_gb} GB</p>
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}" />
+        <p style="font-size:11px;color:#aaa;margin-top:12px">Expires: ${new Date(newGuest.expires_at).toLocaleString()}</p>
+        <script>window.onload=()=>window.print()</script>
+      </body></html>
+    `);
+    win.document.close();
+  };
+
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const columns = ["Guest Name", "Created", "Expires", "Status", "Actions"];
+  const columns = ["Guest Name", "Data Limit", "Created", "Expires", "Status", "Actions"];
   const rows = guests.map((g) => (
     <>
-      <td className="px-4 py-2 text-gray-800">{g.guest_name}</td>
+      <td className="px-4 py-2 text-gray-800">{g.guest_name || <span className="text-gray-400 italic">Pending</span>}</td>
+      <td className="px-4 py-2 text-xs text-gray-500">{g.data_limit_gb ? `${g.data_limit_gb} GB` : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-500">{new Date(g.created_at).toLocaleString()}</td>
       <td className="px-4 py-2 text-xs text-gray-500">{new Date(g.expires_at).toLocaleString()}</td>
       <td className="px-4 py-2">
@@ -67,11 +93,11 @@ export default function AdminGuests() {
       </td>
       <td className="px-4 py-2">
         {g.status === "active" && (
-            <button onClick={() => setConfirm({ id: g.id, label: `Revoke access for ${g.guest_name}?` })}
-              className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline">
-              <Ban size={12} /> Revoke
-            </button>
-          )}
+          <button onClick={() => setConfirm({ id: g.id, label: `Revoke this guest QR code?` })}
+            className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline">
+            <Ban size={12} /> Revoke
+          </button>
+        )}
       </td>
     </>
   ));
@@ -82,19 +108,22 @@ export default function AdminGuests() {
 
       {/* Generate form */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-        <p className="text-sm font-semibold text-gray-700 mb-4">Generate Guest QR Code</p>
+        <p className="text-sm font-semibold text-gray-700 mb-1">Generate Guest QR Code</p>
+        <p className="text-xs text-gray-400 mb-4">No name or password needed — the guest will enter their name after scanning.</p>
         <form onSubmit={handleGenerate} className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Guest Name</label>
-            <input value={form.guest_name} onChange={(e) => setForm({ ...form, guest_name: e.target.value })}
-              placeholder="e.g. John Doe"
-              className="border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 w-48"
-              required />
-          </div>
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-1">Duration (minutes)</label>
             <input type="number" min={5} max={480} value={form.duration_minutes}
               onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })}
+              className="border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 w-32" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">
+              Data Limit (GB)
+              <span className="ml-1 text-gray-400 font-normal">(default: {defaultDataGb} GB from Settings)</span>
+            </label>
+            <input type="number" min={0.1} step={0.1} value={form.data_limit_gb}
+              onChange={(e) => setForm({ ...form, data_limit_gb: parseFloat(e.target.value) })}
               className="border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 w-32" />
           </div>
           <button type="submit" disabled={generating}
@@ -108,14 +137,25 @@ export default function AdminGuests() {
       {/* New QR display */}
       {newGuest && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col items-center gap-4">
-          <p className="text-sm font-semibold text-gray-700">QR Code for {newGuest.guest_name}</p>
+          <p className="text-sm font-semibold text-gray-700">Guest QR Code Ready</p>
+          <p className="text-xs text-gray-400">Guest will enter their name after scanning.</p>
           <div className="p-3 border-2 border-pink-200 rounded-2xl">
             <QRCodeSVG value={`${GUEST_PORTAL}?token=${newGuest.qr_code}`} size={180} />
           </div>
-          <p className="text-xs text-gray-400">Expires: {new Date(newGuest.expires_at).toLocaleString()}</p>
-          <button onClick={() => setNewGuest(null)} className="inline-flex items-center gap-1 text-xs text-pink-500 hover:underline">
-            <X size={12} /> Dismiss
-          </button>
+          <div className="text-center space-y-0.5">
+            <p className="text-xs text-gray-500">Duration: <span className="font-medium">{form.duration_minutes} min</span></p>
+            <p className="text-xs text-gray-500">Data Limit: <span className="font-medium">{newGuest.data_limit_gb} GB</span></p>
+            <p className="text-xs text-gray-400">Expires: {new Date(newGuest.expires_at).toLocaleString()}</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={handlePrint}
+              className="inline-flex items-center gap-1.5 text-xs bg-pink-50 text-pink-600 border border-pink-200 rounded-lg px-3 py-1.5 hover:bg-pink-100 transition">
+              <Printer size={12} /> Print QR
+            </button>
+            <button onClick={() => setNewGuest(null)} className="inline-flex items-center gap-1 text-xs text-gray-400 hover:underline">
+              <X size={12} /> Dismiss
+            </button>
+          </div>
         </div>
       )}
 
