@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { UserPlus, Upload, ShieldOff, ShieldCheck, WifiOff, Pencil, CheckCircle2, AlertTriangle } from "lucide-react";
+import { UserPlus, Upload, Download, ShieldOff, ShieldCheck, WifiOff, Pencil, CheckCircle2, AlertTriangle } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import ConfirmDialog from "./ConfirmDialog";
@@ -47,15 +47,78 @@ export default function AdminUsers() {
     fetchUsers(page);
   };
 
+  const parseCsvLine = (line) => {
+    const values = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"' && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+        continue;
+      }
+      if (char === '"') {
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (char === ',' && !inQuotes) {
+        values.push(current);
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    values.push(current);
+    return values;
+  };
+
   const handleCsvFile = (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const lines = ev.target.result.trim().split("\n").slice(1);
-      const rows = lines.map((l) => {
-        const [student_number, full_name, course_section, enrollment_status] = l.split(",").map((s) => s.trim());
-        return { student_number, full_name, course_section, enrollment_status };
+      const text = ev.target.result.replace(/^\uFEFF/, "").trim();
+      if (!text) return;
+      const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      if (lines.length < 2) {
+        alert("CSV file must contain a header row and at least one data row.");
+        return;
+      }
+
+      const header = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+      const expectedHeaders = [
+        "student_number",
+        "full_name",
+        "birth_date",
+        "course_section",
+        "school_year",
+        "semester",
+        "enrollment_status",
+        "role",
+        "status",
+      ];
+      const missing = expectedHeaders.filter((h) => !header.includes(h));
+      if (missing.length) {
+        alert(`CSV template mismatch. Missing columns: ${missing.join(", ")}`);
+        return;
+      }
+
+      const idx = (name) => header.indexOf(name);
+      const rows = lines.slice(1).map((line) => {
+        const values = parseCsvLine(line);
+        return {
+          student_number: values[idx("student_number")]?.trim() || "",
+          full_name: values[idx("full_name")]?.trim() || "",
+          birth_date: values[idx("birth_date")]?.trim() || "",
+          course_section: values[idx("course_section")]?.trim() || "",
+          school_year: values[idx("school_year")]?.trim() || "",
+          semester: values[idx("semester")]?.trim() || "",
+          enrollment_status: values[idx("enrollment_status")]?.trim() || "",
+          role: values[idx("role")]?.trim() || "student",
+          status: values[idx("status")]?.trim() || "active",
+        };
       });
       setCsvRows(rows);
       setCsvState("preview");
@@ -76,6 +139,27 @@ export default function AdminUsers() {
   };
 
   const resetCsv = () => { setCsvState(null); setCsvRows([]); setCsvResult(null); fileRef.current.value = ""; };
+
+  const downloadCsvTemplate = async () => {
+    try {
+      const res = await adminApi.get("/admin/users/csv-template", { 
+        responseType: "blob",
+        headers: { "Accept": "text/csv" }
+      });
+      const blob = new Blob([res.data], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "users_template.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to download template:", err);
+      alert("Failed to download template. Check console for details.");
+    }
+  };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -130,12 +214,17 @@ export default function AdminUsers() {
             className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow transition">
             <UserPlus size={14} /> Add User
           </button>
-          <label className="inline-flex items-center gap-1.5 bg-white border border-pink-200 text-pink-700 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 transition cursor-pointer">
+          <button onClick={downloadCsvTemplate}
+            className="inline-flex items-center gap-1.5 bg-white border border-pink-200 text-pink-700 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 transition">
+            <Download size={14} /> Download Template
+          </button>
+          <button onClick={() => fileRef.current?.click()}
+            className="inline-flex items-center gap-1.5 bg-white border border-pink-200 text-pink-700 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 transition">
             <Upload size={14} /> Import CSV
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCsvFile} />
-          </label>
+          </button>
         </div>
       </div>
+      <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCsvFile} />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
@@ -171,7 +260,7 @@ export default function AdminUsers() {
             <div className="overflow-auto flex-1 border border-pink-100 rounded-xl mb-4">
               <table className="w-full text-xs">
                 <thead className="bg-pink-50">
-                  <tr>{["Student No.", "Name", "Course/Section", "Enrollment"].map((h) => (
+                  <tr>{["Student No.", "Name", "Birth Date", "Course/Section", "School Year", "Semester", "Enrollment", "Role", "Status"].map((h) => (
                     <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold">{h}</th>
                   ))}</tr>
                 </thead>
@@ -180,8 +269,13 @@ export default function AdminUsers() {
                     <tr key={i} className="border-b border-pink-50">
                       <td className="px-3 py-1.5 font-mono">{r.student_number}</td>
                       <td className="px-3 py-1.5">{r.full_name}</td>
+                      <td className="px-3 py-1.5">{r.birth_date}</td>
                       <td className="px-3 py-1.5">{r.course_section}</td>
+                      <td className="px-3 py-1.5">{r.school_year}</td>
+                      <td className="px-3 py-1.5">{r.semester}</td>
                       <td className="px-3 py-1.5">{r.enrollment_status}</td>
+                      <td className="px-3 py-1.5">{r.role}</td>
+                      <td className="px-3 py-1.5">{r.status}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -237,20 +331,30 @@ function UserFormModal({ user, onClose, onSaved }) {
     full_name: user?.full_name ?? "",
     course_section: user?.course_section ?? "",
     enrollment_status: user?.enrollment_status ?? "enrolled",
-    password: "",
+    birthdate: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // Derive password: LastName (before the comma) + YYYY + MM + DD
+  const derivedPassword = (() => {
+    if (user) return null; // edit mode — no password change
+    const lastName = form.full_name.split(",")[0].trim();
+    if (!lastName || !form.birthdate) return null;
+    const [yyyy, mm, dd] = form.birthdate.split("-");
+    return `${lastName}${yyyy}${mm}${dd}`;
+  })();
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!user && !derivedPassword) return;
     setSaving(true);
     setError("");
     try {
       if (user) {
         await adminApi.put(`/admin/users/${user.id}`, form);
       } else {
-        await adminApi.post("/admin/users", form);
+        await adminApi.post("/admin/users", { ...form, password: derivedPassword });
       }
       onSaved();
     } catch (err) {
@@ -259,25 +363,31 @@ function UserFormModal({ user, onClose, onSaved }) {
     }
   };
 
-  const fields = [
-    { key: "student_number", label: "Student Number", type: "text" },
-    { key: "full_name", label: "Full Name", type: "text" },
-    { key: "course_section", label: "Course / Section", type: "text" },
-  ];
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
         <p className="font-semibold text-gray-800 mb-4">{user ? "Edit User" : "Add User"}</p>
         {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-3">
-          {fields.map(({ key, label, type }) => (
-            <div key={key}>
-              <label className="text-xs font-medium text-gray-600 block mb-1">{label}</label>
-              <input type={type} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
-            </div>
-          ))}
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Student Number</label>
+            <input type="text" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })}
+              className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">
+              Full Name
+              <span className="ml-1 font-normal text-gray-400">(Last, First Middle)</span>
+            </label>
+            <input type="text" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              placeholder="e.g. Dela Cruz, Juan Miguel"
+              className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Course / Section</label>
+            <input type="text" value={form.course_section} onChange={(e) => setForm({ ...form, course_section: e.target.value })}
+              className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+          </div>
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-1">Enrollment Status</label>
             <select value={form.enrollment_status} onChange={(e) => setForm({ ...form, enrollment_status: e.target.value })}
@@ -286,16 +396,26 @@ function UserFormModal({ user, onClose, onSaved }) {
               <option value="not_enrolled">Not Enrolled</option>
             </select>
           </div>
+
           {!user && (
             <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Password</label>
-              <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+              <label className="text-xs font-medium text-gray-600 block mb-1">Birthdate</label>
+              <input type="date" value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
                 className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+              {derivedPassword && (
+                <div className="mt-2 bg-pink-50 border border-pink-200 rounded-xl px-3 py-2">
+                  <p className="text-xs text-gray-500 mb-0.5">Generated password</p>
+                  <p className="text-sm font-mono font-semibold text-pink-700">{derivedPassword}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Share this with the user so they can log in.</p>
+                </div>
+              )}
             </div>
           )}
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 border border-pink-200 text-gray-600 rounded-xl py-2 text-sm hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md disabled:opacity-60">
+            <button type="submit" disabled={saving || (!user && !derivedPassword)}
+              className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md disabled:opacity-60">
               {saving ? "Saving…" : "Save"}
             </button>
           </div>

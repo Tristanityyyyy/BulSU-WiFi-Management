@@ -21,29 +21,15 @@ export default function AdminLogin() {
     setError("");
     setLoading(true);
 
-    // Temporary — remove before production
-    if (username === "admin" && password === "admin123") {
-      localStorage.setItem("adminToken", JSON.stringify({ role: "admin" }));
-      navigate("/admin/overview");
-      return;
-    }
-
     try {
-      /*const res = await axios.post(`${API_BASE}/auth/login`, { username, password });
+      const res = await axios.post(`${API_BASE}/auth/login`, { username, password });
       if (res.data.role !== "admin") {
         setError("Access denied. Admin accounts only.");
         setLoading(false);
         return;
       }
       localStorage.setItem("adminToken", res.data.token);
-      navigate("/admin/overview");*/
-      // Temporary — remove before production
-    if (username === "admin" && password === "admin123") {
-      localStorage.setItem("adminToken", JSON.stringify({ role: "admin" }));
       navigate("/admin/overview");
-      return;
-    }
-
     } catch (err) {
       setError(err.response?.data?.message || "Invalid credentials.");
       setLoading(false);

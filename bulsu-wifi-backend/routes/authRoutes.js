@@ -9,8 +9,8 @@ router.post("/login", async (req, res) => {
   const { username, password } = req.body;
   try {
     const [[user]] = await db.query(
-      "SELECT * FROM users WHERE student_number = ? OR username = ? LIMIT 1",
-      [username, username]
+      "SELECT * FROM users WHERE student_number = ? LIMIT 1",
+      [username]
     );
     if (!user) return res.status(401).json({ message: "Invalid username or password." });
     if (user.status === "blocked") return res.status(403).json({ message: "Account is blocked." });
