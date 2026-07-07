@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
 // POST /api/admin/notifications/send
 router.post('/send', async (req, res) => {
   try {
-    const { target, user_id, course_section, message } = req.body;
+    const { target, user_id, course_id, section_id, message } = req.body;
     if (!target || !message)
       return res.status(400).json({ message: 'target and message are required.' });
     let userIds = [];
@@ -34,8 +34,12 @@ router.post('/send', async (req, res) => {
       if (!user_id) return res.status(400).json({ message: 'user_id is required for target "user".' });
       userIds = [user_id];
     } else if (target === 'section') {
-      if (!course_section) return res.status(400).json({ message: 'course_section is required for target "section".' });
-      const [rows] = await db.query('SELECT id FROM users WHERE course_section = ?', [course_section]);
+      const normalizedCourseId = Number(course_id);
+      const normalizedSectionId = Number(section_id);
+      if (!normalizedCourseId || !normalizedSectionId) {
+        return res.status(400).json({ message: 'course and section are required for target "section".' });
+      }
+      const [rows] = await db.query('SELECT id FROM users WHERE course_id = ? AND section_id = ?', [normalizedCourseId, normalizedSectionId]);
       userIds = rows.map((r) => r.id);
     } else {
       const [rows] = await db.query('SELECT id FROM users WHERE role = "student"');

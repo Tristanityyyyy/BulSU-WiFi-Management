@@ -20,8 +20,8 @@ async function seedAdmin() {
 
     // Insert admin user
     const [result] = await db.query(
-      `INSERT INTO users (student_number, full_name, birth_date, password_hash, role, status, enrollment_status, course_section) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (student_number, full_name, birth_date, password_hash, role, status, enrollment_status, course_id, section_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         "ADMIN001",           // student_number
         "Administrator,",      // full_name
@@ -30,7 +30,8 @@ async function seedAdmin() {
         "admin",              // role
         "active",             // status
         "enrolled",           // enrollment_status
-        "Admin"               // course_section
+        null,                  // course_id
+        null                   // section_id
       ]
     );
 

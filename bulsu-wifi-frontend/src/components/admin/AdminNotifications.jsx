@@ -13,10 +13,11 @@ export default function AdminNotifications() {
   const [filterType, setFilterType] = useState("");
   const [filterRead, setFilterRead] = useState("");
   const [compose, setCompose] = useState(false);
-  const [form, setForm] = useState({ target: "user", user_id: "", course_section: "", message: "" });
+  const [form, setForm] = useState({ target: "user", user_id: "", course_id: "", section_id: "", message: "" });
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
   const [sendSuccess, setSendSuccess] = useState(false);
+  const [catalog, setCatalog] = useState({ courses: [], sections: [] });
 
   const fetchNotifications = async (p = page) => {
     setLoading(true);
@@ -33,6 +34,9 @@ export default function AdminNotifications() {
 
   useEffect(() => { setPage(1); fetchNotifications(1); }, [filterType, filterRead]);
   useEffect(() => { fetchNotifications(page); }, [page]);
+  useEffect(() => {
+    adminApi.get("/admin/settings/catalog").then((res) => setCatalog(res.data || { courses: [], sections: [] }));
+  }, []);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -42,7 +46,7 @@ export default function AdminNotifications() {
       await adminApi.post("/admin/notifications/send", form);
       setSendSuccess(true);
       setCompose(false);
-      setForm({ target: "user", user_id: "", course_section: "", message: "" });
+      setForm({ target: "user", user_id: "", course_id: "", section_id: "", message: "" });
       fetchNotifications(1);
     } catch (err) {
       setSendError(err.response?.data?.message || "Failed to send.");
@@ -52,6 +56,7 @@ export default function AdminNotifications() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const columns = ["User ID", "Type", "Message", "Sent At", "Read"];
+  const sectionOptions = (catalog.sections || []).filter((section) => String(section.course_id) === String(form.course_id));
   const tableRows = rows.map((n) => (
     <>
       <td className="px-4 py-2 text-gray-700 text-xs font-mono">{n.user_id ?? "—"}</td>
@@ -131,12 +136,29 @@ export default function AdminNotifications() {
                 </div>
               )}
               {form.target === "section" && (
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Course Section</label>
-                  <input value={form.course_section} onChange={(e) => setForm({ ...form, course_section: e.target.value })}
-                    placeholder="e.g. BSCS-3A"
-                    className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
-                    required />
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Course</label>
+                    <select value={form.course_id} onChange={(e) => setForm({ ...form, course_id: e.target.value, section_id: "" })}
+                      className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                      required>
+                      <option value="">Select course</option>
+                      {(catalog.courses || []).map((course) => (
+                        <option key={course.id} value={course.id}>{course.code || course.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Section</label>
+                    <select value={form.section_id} onChange={(e) => setForm({ ...form, section_id: e.target.value })}
+                      className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                      required disabled={!form.course_id}>
+                      <option value="">Select section</option>
+                      {sectionOptions.map((section) => (
+                        <option key={section.id} value={section.id}>{section.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
               <div>

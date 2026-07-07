@@ -7,6 +7,8 @@ import LoadingSpinner from "../ui/LoadingSpinner";
 
 const PAGE_SIZE = 20;
 
+const humanize = (value) => (value || "").split("_").filter(Boolean).map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
@@ -20,6 +22,8 @@ export default function AdminUsers() {
   const [csvState, setCsvState] = useState(null);
   const [csvRows, setCsvRows] = useState([]);
   const [csvResult, setCsvResult] = useState(null);
+  const [importRole, setImportRole] = useState("student");
+  const [catalog, setCatalog] = useState({ courses: [], sections: [] });
   const fileRef = useRef();
 
   const fetchUsers = async (p = page) => {
@@ -34,6 +38,10 @@ export default function AdminUsers() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    adminApi.get("/admin/settings/catalog").then((res) => setCatalog(res.data));
+  }, []);
 
   useEffect(() => { fetchUsers(1); setPage(1); }, [search, filterStatus, filterEnrollment]);
   useEffect(() => { fetchUsers(page); }, [page]);
@@ -74,83 +82,111 @@ export default function AdminUsers() {
     return values;
   };
 
-  const handleCsvFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const expectedHeaders = [
+    "student_number",
+    "full_name",
+    "birth_date",
+    "course_code",
+    "section_name",
+    "school_year",
+    "semester",
+    "enrollment_status",
+  ];
+
+  const buildRowsFromTable = (header, dataRows) => {
+    const missing = expectedHeaders.filter((h) => !header.includes(h));
+    if (missing.length) {
+      alert(`Template mismatch. Missing columns: ${missing.join(", ")}`);
+      return null;
+    }
+    const idx = (name) => header.indexOf(name);
+    return dataRows.map((values) => ({
+      student_number: values[idx("student_number")]?.trim() || "",
+      full_name: values[idx("full_name")]?.trim() || "",
+      birth_date: values[idx("birth_date")]?.trim() || "",
+      course_code: values[idx("course_code")]?.trim() || "",
+      section_name: values[idx("section_name")]?.trim() || "",
+      school_year: values[idx("school_year")]?.trim() || "",
+      semester: values[idx("semester")]?.trim() || "",
+      enrollment_status: values[idx("enrollment_status")]?.trim() || "",
+    }));
+  };
+
+  const processCsvFile = (file) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target.result.replace(/^\uFEFF/, "").trim();
       if (!text) return;
       const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
       if (lines.length < 2) {
-        alert("CSV file must contain a header row and at least one data row.");
+        alert("File must contain a header row and at least one data row.");
         return;
       }
-
       const header = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
-      const expectedHeaders = [
-        "student_number",
-        "full_name",
-        "birth_date",
-        "course_section",
-        "school_year",
-        "semester",
-        "enrollment_status",
-        "role",
-        "status",
-      ];
-      const missing = expectedHeaders.filter((h) => !header.includes(h));
-      if (missing.length) {
-        alert(`CSV template mismatch. Missing columns: ${missing.join(", ")}`);
-        return;
-      }
-
-      const idx = (name) => header.indexOf(name);
-      const rows = lines.slice(1).map((line) => {
-        const values = parseCsvLine(line);
-        return {
-          student_number: values[idx("student_number")]?.trim() || "",
-          full_name: values[idx("full_name")]?.trim() || "",
-          birth_date: values[idx("birth_date")]?.trim() || "",
-          course_section: values[idx("course_section")]?.trim() || "",
-          school_year: values[idx("school_year")]?.trim() || "",
-          semester: values[idx("semester")]?.trim() || "",
-          enrollment_status: values[idx("enrollment_status")]?.trim() || "",
-          role: values[idx("role")]?.trim() || "student",
-          status: values[idx("status")]?.trim() || "active",
-        };
-      });
+      const dataRows = lines.slice(1).map((line) => parseCsvLine(line));
+      const rows = buildRowsFromTable(header, dataRows);
+      if (!rows) return;
       setCsvRows(rows);
       setCsvState("preview");
     };
     reader.readAsText(file);
   };
 
+  const processXlsxFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const res = await adminApi.post("/admin/users/parse-xlsx", ev.target.result, {
+          headers: { "Content-Type": "application/octet-stream" },
+        });
+        const header = res.data.header.map((h) => h.trim().toLowerCase());
+        const rows = buildRowsFromTable(header, res.data.rows);
+        if (!rows) return;
+        setCsvRows(rows);
+        setCsvState("preview");
+      } catch (err) {
+        alert(err.response?.data?.message || "Failed to read the Excel file.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleFileSelected = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.name.toLowerCase().endsWith(".xlsx")) {
+      processXlsxFile(file);
+    } else {
+      processCsvFile(file);
+    }
+  };
+
   const confirmCsvImport = async () => {
     setCsvState("importing");
     try {
-      const res = await adminApi.post("/admin/users/csv-import", { rows: csvRows });
+      const res = await adminApi.post("/admin/users/csv-import", { rows: csvRows, role: importRole });
       setCsvResult(res.data);
-    } catch {
-      setCsvResult({ success: 0, failed: csvRows.length });
+    } catch (err) {
+      if (err.response?.status === 400 && err.response.data?.invalid_rows) {
+        setCsvResult({ rejected: true, message: err.response.data.message, invalid_rows: err.response.data.invalid_rows });
+      } else {
+        setCsvResult({ success: 0, failed: csvRows.length, message: err.response?.data?.message || "Import failed." });
+      }
     } finally {
       setCsvState("done");
     }
   };
 
-  const resetCsv = () => { setCsvState(null); setCsvRows([]); setCsvResult(null); fileRef.current.value = ""; };
+  const resetCsv = () => { setCsvState(null); setCsvRows([]); setCsvResult(null); setImportRole("student"); fileRef.current.value = ""; };
 
   const downloadCsvTemplate = async () => {
     try {
-      const res = await adminApi.get("/admin/users/csv-template", { 
-        responseType: "blob",
-        headers: { "Accept": "text/csv" }
-      });
-      const blob = new Blob([res.data], { type: "text/csv;charset=utf-8;" });
+      const res = await adminApi.get("/admin/users/csv-template", { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "users_template.csv";
+      link.download = "students_template.xlsx";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -162,48 +198,70 @@ export default function AdminUsers() {
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+  const courseMap = Object.fromEntries((catalog.courses || []).map((course) => [String(course.id), course.code || course.name]));
+  const sectionMap = Object.fromEntries((catalog.sections || []).map((section) => [String(section.id), section.name]));
+
+  const isImportRowValid = (row) => {
+    if (importRole !== "student") return true;
+    if (!row.course_code && !row.section_name) return true;
+    if (!row.course_code) return false;
+    const course = (catalog.courses || []).find((c) => (c.code || c.name || "").trim().toUpperCase() === row.course_code.trim().toUpperCase());
+    if (!course) return false;
+    if (!row.section_name) return true;
+    return (catalog.sections || []).some((s) => s.course_id === course.id && (s.name || "").trim().toUpperCase() === row.section_name.trim().toUpperCase());
+  };
+  const invalidCsvRowCount = importRole === "student" ? csvRows.filter((r) => !isImportRowValid(r)).length : 0;
 
   const columns = ["Student No.", "Name", "Course/Section", "Enrollment", "Status", "Actions"];
-  const rows = users.map((u) => (
-    <>
-      <td className="px-4 py-2 text-gray-700 font-mono text-xs">{u.student_number}</td>
-      <td className="px-4 py-2 text-gray-800">{u.full_name}</td>
-      <td className="px-4 py-2 text-gray-600 text-xs">{u.course_section}</td>
-      <td className="px-4 py-2">
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.enrollment_status === "enrolled" ? "bg-green-50 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500"}`}>
-          {u.enrollment_status}
-        </span>
-      </td>
-      <td className="px-4 py-2">
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "active" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
-          {u.status}
-        </span>
-      </td>
-      <td className="px-4 py-2">
-        <div className="flex gap-3 flex-wrap items-center">
-          {u.status === "active" ? (
-            <button onClick={() => setConfirm({ action: "block", userId: u.id, label: `Block ${u.full_name}?` })}
-              className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline">
-              <ShieldOff size={12} />Block
-            </button>
+  const rows = users.map((u) => {
+    const courseLabel = courseMap[String(u.course_id)] || (u.course_id ? `#${u.course_id}` : "—");
+    const sectionLabel = sectionMap[String(u.section_id)] || "";
+    const courseSection = sectionLabel ? `${courseLabel} / ${sectionLabel}` : courseLabel;
+    return (
+      <>
+        <td className="px-4 py-2 text-gray-700 font-mono text-xs">{u.student_number}</td>
+        <td className="px-4 py-2 text-gray-800">{u.full_name}</td>
+        <td className="px-4 py-2 text-gray-600 text-xs">{courseSection}</td>
+        <td className="px-4 py-2">
+          {u.enrollment_status ? (
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.enrollment_status === "enrolled" ? "bg-green-50 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500"}`}>
+              {humanize(u.enrollment_status)}
+            </span>
           ) : (
-            <button onClick={() => setConfirm({ action: "unblock", userId: u.id, label: `Unblock ${u.full_name}?` })}
-              className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline">
-              <ShieldCheck size={12} />Unblock
-            </button>
+            <span className="text-xs text-gray-400">—</span>
           )}
-          <button onClick={() => setConfirm({ action: "disconnect", userId: u.id, label: `Force-disconnect ${u.full_name}?` })}
-            className="inline-flex items-center gap-1 text-xs text-pink-600 hover:underline">
-            <WifiOff size={12} />Disconnect
-          </button>
-          <button onClick={() => setModal(u)}
-            className="inline-flex items-center gap-1 text-xs text-gray-500 hover:underline">
-            <Pencil size={12} />Edit
-          </button>
-        </div>
-      </td>
-    </>
-  ));
+        </td>
+        <td className="px-4 py-2">
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "active" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
+            {humanize(u.status)}
+          </span>
+        </td>
+        <td className="px-4 py-2">
+          <div className="flex gap-3 flex-wrap items-center">
+            {u.status === "active" ? (
+              <button onClick={() => setConfirm({ action: "block", userId: u.id, label: `Block ${u.full_name}?` })}
+                className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline">
+                <ShieldOff size={12} />Block
+              </button>
+            ) : (
+              <button onClick={() => setConfirm({ action: "unblock", userId: u.id, label: `Unblock ${u.full_name}?` })}
+                className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline">
+                <ShieldCheck size={12} />Unblock
+              </button>
+            )}
+            <button onClick={() => setConfirm({ action: "disconnect", userId: u.id, label: `Force-disconnect ${u.full_name}?` })}
+              className="inline-flex items-center gap-1 text-xs text-pink-600 hover:underline">
+              <WifiOff size={12} />Disconnect
+            </button>
+            <button onClick={() => setModal(u)}
+              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:underline">
+              <Pencil size={12} />Edit
+            </button>
+          </div>
+        </td>
+      </>
+    );
+  });
 
   return (
     <div className="space-y-4">
@@ -220,11 +278,11 @@ export default function AdminUsers() {
           </button>
           <button onClick={() => fileRef.current?.click()}
             className="inline-flex items-center gap-1.5 bg-white border border-pink-200 text-pink-700 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 transition">
-            <Upload size={14} /> Import CSV
+            <Upload size={14} /> Import File
           </button>
         </div>
       </div>
-      <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCsvFile} />
+      <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleFileSelected} />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
@@ -252,38 +310,64 @@ export default function AdminUsers() {
         emptyText="No users found."
         emptyHint="Try a different search term or adjust the filters above." />
 
-      {/* CSV Preview */}
+      {/* Import Preview */}
       {csvState === "preview" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <p className="font-semibold text-gray-800 mb-3">CSV Preview — {csvRows.length} rows</p>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <p className="font-semibold text-gray-800">Import Preview — {csvRows.length} rows</p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-600">Import these as:</span>
+                <div className="inline-flex rounded-xl border border-pink-200 overflow-hidden">
+                  {["student", "faculty", "staff"].map((r) => (
+                    <button key={r} type="button" onClick={() => setImportRole(r)}
+                      className={`px-3 py-1 text-xs font-medium capitalize transition ${importRole === r ? "bg-pink-600 text-white" : "bg-white text-gray-600 hover:bg-pink-50"}`}>
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {importRole === "student" && invalidCsvRowCount > 0 && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">
+                {invalidCsvRowCount} row(s) below reference a course or section that isn't registered in the system (highlighted in red). The import will be rejected until these are fixed.
+              </p>
+            )}
+            {importRole !== "student" && (
+              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 mb-3">
+                Course/Section are ignored for {importRole} imports.
+              </p>
+            )}
             <div className="overflow-auto flex-1 border border-pink-100 rounded-xl mb-4">
               <table className="w-full text-xs">
                 <thead className="bg-pink-50">
-                  <tr>{["Student No.", "Name", "Birth Date", "Course/Section", "School Year", "Semester", "Enrollment", "Role", "Status"].map((h) => (
+                  <tr>{["Student No.", "Name", "Birth Date", "Course Code", "Section Name", "School Year", "Semester", "Enrollment"].map((h) => (
                     <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold">{h}</th>
                   ))}</tr>
                 </thead>
                 <tbody>
-                  {csvRows.slice(0, 50).map((r, i) => (
-                    <tr key={i} className="border-b border-pink-50">
-                      <td className="px-3 py-1.5 font-mono">{r.student_number}</td>
-                      <td className="px-3 py-1.5">{r.full_name}</td>
-                      <td className="px-3 py-1.5">{r.birth_date}</td>
-                      <td className="px-3 py-1.5">{r.course_section}</td>
-                      <td className="px-3 py-1.5">{r.school_year}</td>
-                      <td className="px-3 py-1.5">{r.semester}</td>
-                      <td className="px-3 py-1.5">{r.enrollment_status}</td>
-                      <td className="px-3 py-1.5">{r.role}</td>
-                      <td className="px-3 py-1.5">{r.status}</td>
-                    </tr>
-                  ))}
+                  {csvRows.slice(0, 50).map((r, i) => {
+                    const invalid = importRole === "student" && !isImportRowValid(r);
+                    return (
+                      <tr key={i} className={`border-b border-pink-50 ${invalid ? "bg-red-50" : ""}`}>
+                        <td className="px-3 py-1.5 font-mono">{r.student_number}</td>
+                        <td className="px-3 py-1.5">{r.full_name}</td>
+                        <td className="px-3 py-1.5">{r.birth_date}</td>
+                        <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.course_code}</td>
+                        <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.section_name}</td>
+                        <td className="px-3 py-1.5">{r.school_year}</td>
+                        <td className="px-3 py-1.5">{r.semester}</td>
+                        <td className="px-3 py-1.5">{r.enrollment_status}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
             <div className="flex gap-3">
               <button onClick={resetCsv} className="flex-1 border border-pink-200 text-gray-600 rounded-xl py-2 text-sm hover:bg-gray-50">Cancel</button>
-              <button onClick={confirmCsvImport} className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md hover:from-pink-700 hover:to-rose-600">
+              <button onClick={confirmCsvImport} disabled={importRole === "student" && invalidCsvRowCount > 0}
+                className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md hover:from-pink-700 hover:to-rose-600 disabled:opacity-50 disabled:cursor-not-allowed">
                 Import {csvRows.length} rows
               </button>
             </div>
@@ -302,39 +386,85 @@ export default function AdminUsers() {
 
       {csvState === "done" && csvResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm text-center">
-            <div className="flex justify-center mb-3">
-              {csvResult.failed === 0
-                ? <CheckCircle2 size={44} className="text-green-600" strokeWidth={1.5} />
-                : <AlertTriangle size={44} className="text-orange-500" strokeWidth={1.5} />}
-            </div>
-            <p className="font-semibold text-gray-800 mb-1">Import Complete</p>
-            <p className="text-sm text-green-700">{csvResult.success} rows imported successfully.</p>
-            {csvResult.failed > 0 && <p className="text-sm text-red-600">{csvResult.failed} rows failed.</p>}
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md text-center max-h-[80vh] flex flex-col">
+            {csvResult.rejected ? (
+              <>
+                <div className="flex justify-center mb-3">
+                  <AlertTriangle size={44} className="text-red-500" strokeWidth={1.5} />
+                </div>
+                <p className="font-semibold text-gray-800 mb-1">Import Rejected</p>
+                <p className="text-sm text-red-600 mb-3">{csvResult.message}</p>
+                <div className="overflow-auto flex-1 text-left border border-red-100 rounded-xl divide-y divide-red-50">
+                  {csvResult.invalid_rows.map((r, i) => (
+                    <div key={i} className="px-3 py-2 text-xs">
+                      <span className="font-mono text-gray-500">Row {r.row}</span>
+                      {r.student_number && <span className="text-gray-500"> ({r.student_number})</span>}
+                      <span className="block text-red-700">{r.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-center mb-3">
+                  {csvResult.failed === 0
+                    ? <CheckCircle2 size={44} className="text-green-600" strokeWidth={1.5} />
+                    : <AlertTriangle size={44} className="text-orange-500" strokeWidth={1.5} />}
+                </div>
+                <p className="font-semibold text-gray-800 mb-1">Import Complete</p>
+                <p className="text-sm text-green-700">{csvResult.success} rows imported successfully.</p>
+                {csvResult.failed > 0 && <p className="text-sm text-red-600">{csvResult.failed} rows failed.</p>}
+                {csvResult.message && <p className="text-sm text-red-600">{csvResult.message}</p>}
+              </>
+            )}
             <button onClick={() => { resetCsv(); fetchUsers(1); }}
-              className="mt-4 w-full bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md">
+              className="mt-4 w-full bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md shrink-0">
               Done
             </button>
           </div>
         </div>
       )}
 
-      {modal && <UserFormModal user={modal === "add" ? null : modal} onClose={() => setModal(null)} onSaved={() => { setModal(null); fetchUsers(page); }} />}
+      {modal && <UserFormModal user={modal === "add" ? null : modal} courses={catalog.courses} sections={catalog.sections} onClose={() => setModal(null)} onSaved={() => { setModal(null); fetchUsers(page); }} />}
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doAction} onCancel={() => setConfirm(null)} />}
     </div>
   );
 }
 
-function UserFormModal({ user, onClose, onSaved }) {
+const USER_ROLES = ["student", "faculty", "staff"];
+
+function UserFormModal({ user, courses, sections, onClose, onSaved }) {
+  const isAdminAccount = user?.role === "admin";
   const [form, setForm] = useState({
     student_number: user?.student_number ?? "",
     full_name: user?.full_name ?? "",
-    course_section: user?.course_section ?? "",
+    role: USER_ROLES.includes(user?.role) ? user.role : "",
+    course_id: user?.course_id ?? "",
+    section_id: user?.section_id ?? "",
     enrollment_status: user?.enrollment_status ?? "enrolled",
     birthdate: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const isStudentRole = form.role === "student";
+  const sectionOptions = (sections || []).filter((section) => String(section.course_id) === String(form.course_id));
+
+  // Picking a course implies (and locks) the Student role; clearing the course frees the Role
+  // dropdown back up, but "Student" stays unpickable there until a course is chosen again.
+  const handleCourseChange = (courseId) => {
+    setForm({
+      ...form,
+      course_id: courseId,
+      section_id: "",
+      role: courseId ? "student" : "",
+      enrollment_status: courseId ? (form.enrollment_status || "enrolled") : "",
+    });
+  };
+
+  const handleRoleChange = (role) => {
+    setForm({ ...form, role, enrollment_status: "" });
+  };
 
   // Derive password: LastName (before the comma) + YYYY + MM + DD
   const derivedPassword = (() => {
@@ -351,10 +481,16 @@ function UserFormModal({ user, onClose, onSaved }) {
     setSaving(true);
     setError("");
     try {
+      const payload = {
+        ...form,
+        course_id: form.course_id ? Number(form.course_id) : null,
+        section_id: form.section_id ? Number(form.section_id) : null,
+      };
+      if (isAdminAccount) delete payload.role;
       if (user) {
-        await adminApi.put(`/admin/users/${user.id}`, form);
+        await adminApi.put(`/admin/users/${user.id}`, payload);
       } else {
-        await adminApi.post("/admin/users", { ...form, password: derivedPassword });
+        await adminApi.post("/admin/users", { ...payload, password: derivedPassword });
       }
       onSaved();
     } catch (err) {
@@ -383,19 +519,52 @@ function UserFormModal({ user, onClose, onSaved }) {
               placeholder="e.g. Dela Cruz, Juan Miguel"
               className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
           </div>
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Course / Section</label>
-            <input type="text" value={form.course_section} onChange={(e) => setForm({ ...form, course_section: e.target.value })}
-              className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Enrollment Status</label>
-            <select value={form.enrollment_status} onChange={(e) => setForm({ ...form, enrollment_status: e.target.value })}
-              className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
-              <option value="enrolled">Enrolled</option>
-              <option value="not_enrolled">Not Enrolled</option>
-            </select>
-          </div>
+          {!isAdminAccount && (
+            <>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Course</label>
+                <select value={form.course_id} onChange={(e) => handleCourseChange(e.target.value)}
+                  className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
+                  <option value="">Select course</option>
+                  {(courses || []).map((course) => (
+                    <option key={course.id} value={course.id}>{course.code || course.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Section</label>
+                <select value={form.section_id} onChange={(e) => setForm({ ...form, section_id: e.target.value })}
+                  className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:bg-gray-100 disabled:cursor-not-allowed" required={!!form.course_id} disabled={!form.course_id}>
+                  <option value="">Select section</option>
+                  {sectionOptions.map((section) => (
+                    <option key={section.id} value={section.id}>{section.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Role</label>
+                <select value={form.role} onChange={(e) => handleRoleChange(e.target.value)} required
+                  className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 capitalize disabled:bg-gray-100 disabled:cursor-not-allowed" disabled={!!form.course_id}>
+                  <option value="" disabled>Select role</option>
+                  {USER_ROLES.map((role) => (
+                    <option key={role} value={role} disabled={role === "student" && !form.course_id} className="capitalize">
+                      {role[0].toUpperCase() + role.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {isStudentRole && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Enrollment Status</label>
+                  <select value={form.enrollment_status} onChange={(e) => setForm({ ...form, enrollment_status: e.target.value })}
+                    className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
+                    <option value="enrolled">Enrolled</option>
+                    <option value="not_enrolled">Not Enrolled</option>
+                  </select>
+                </div>
+              )}
+            </>
+          )}
 
           {!user && (
             <div>
