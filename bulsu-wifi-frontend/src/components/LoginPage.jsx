@@ -28,6 +28,16 @@ export default function LoginPage() {
     setTimeout(() => navigate("/dashboard"), 2500);
   };
 
+  const handleFeedbackSubmit = async ({ stars, comment }) => {
+    await axios.post(`${API_BASE}/feedback`, {
+      stars,
+      comment,
+      studentNumber: username.trim() || undefined,
+    });
+    setShowFeedback(false);
+    setShowConfirm(true);
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
@@ -133,7 +143,7 @@ export default function LoginPage() {
 
       {showFeedback && (
         <FeedbackModal
-          onSubmit={() => { setShowFeedback(false); setShowConfirm(true); }}
+          onSubmit={handleFeedbackSubmit}
           onCancel={() => setShowFeedback(false)}
         />
       )}

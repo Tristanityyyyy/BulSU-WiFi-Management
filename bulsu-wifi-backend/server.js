@@ -5,6 +5,7 @@ const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
 const adminRoutes = require("./routes/admin/index");
 const guestRoutes = require("./routes/guestRoutes");
+const feedbackRoutes = require("./routes/feedbackRoutes");
 const { startGuestExpirySweeper } = require("./jobs/guestExpiry");
 
 const app = express();
@@ -15,6 +16,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/guest", guestRoutes);
+app.use("/api/feedback", feedbackRoutes);
 
 startGuestExpirySweeper();
 

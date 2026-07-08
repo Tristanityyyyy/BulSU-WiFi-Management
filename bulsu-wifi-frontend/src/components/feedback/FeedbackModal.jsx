@@ -2,6 +2,7 @@ import { useState } from "react";
 import { MessageSquareHeart, Star } from "lucide-react";
 import Modal from "../ui/Modal";
 import Button from "../ui/Button";
+import AlertBanner from "../ui/AlertBanner";
 
 const MAX_COMMENT = 500;
 const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
@@ -10,10 +11,21 @@ export default function FeedbackModal({ onSubmit, onCancel }) {
   const [stars, setStars] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const active = hovered || stars;
 
-  const handleSubmit = () => onSubmit({ stars, comment });
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      await onSubmit({ stars, comment: comment.trim() });
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to submit feedback. Please try again.");
+      setSubmitting(false);
+    }
+  };
   const handleCancel = () => { setStars(0); setHovered(0); setComment(""); onCancel(); };
 
   return (
@@ -23,6 +35,7 @@ export default function FeedbackModal({ onSubmit, onCancel }) {
       subtitle="How was your session with BulSU Wi-Fi?"
       icon={<MessageSquareHeart size={18} />}
     >
+      <AlertBanner message={error} />
       <div className="flex justify-center gap-1.5 mb-2" onMouseLeave={() => setHovered(0)}>
         {[1, 2, 3, 4, 5].map((s) => (
           <button
@@ -59,8 +72,10 @@ export default function FeedbackModal({ onSubmit, onCancel }) {
       </div>
 
       <div className="flex gap-3">
-        <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-        <Button onClick={handleSubmit} disabled={stars === 0}>Submit</Button>
+        <Button variant="outline" onClick={handleCancel} disabled={submitting}>Cancel</Button>
+        <Button onClick={handleSubmit} disabled={stars === 0 || submitting}>
+          {submitting ? "Submitting…" : "Submit"}
+        </Button>
       </div>
     </Modal>
   );
