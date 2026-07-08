@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Dark mode is class-driven (html.dark), toggled by src/theme.jsx on admin pages only. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
   BulSU Wi-Fi design tokens.
   Fonts are bundled (fontsource) — a captive portal loads before the
@@ -10,6 +13,7 @@
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Wine — the dark chrome, derived from the pink/rose brand rather than slate */
+  --color-wine-975: #120a0f;
   --color-wine-950: #1a0d15;
   --color-wine-900: #2a1421;
   --color-wine-800: #40202f;
@@ -22,6 +26,18 @@
 @layer base {
   body {
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* Native controls (selects, date pickers, scrollbars) follow the admin theme.
+     Inputs rarely declare their own text color, so give them a readable default. */
+  .dark {
+    color-scheme: dark;
+  }
+  .dark input, .dark select, .dark textarea {
+    color: #f3f4f6;
+  }
+  .dark input::placeholder, .dark textarea::placeholder {
+    color: #6b7280;
   }
 
   h1, h2, h3 {

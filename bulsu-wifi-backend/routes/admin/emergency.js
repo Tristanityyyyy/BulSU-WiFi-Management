@@ -68,10 +68,19 @@ router.post('/', async (req, res) => {
     let targetLabel = '';
 
     if (target_type === 'user') {
-      const [[user]] = await db.query('SELECT id, full_name FROM users WHERE id = ?', [target_id]);
-      if (!user) return res.status(404).json({ message: 'User not found.' });
-      targets = [user];
-      targetLabel = user.full_name;
+      // User targeting is multi-select (checkboxes in the UI) just like guests, so target_id
+      // arrives as an array — still accept a bare id for backwards compatibility.
+      const userIds = Array.isArray(target_id) ? target_id : [target_id];
+      if (userIds.length === 0)
+        return res.status(400).json({ message: 'At least one user must be selected.' });
+      const [rows] = await db.query(
+        `SELECT id, full_name FROM users WHERE id IN (${userIds.map(() => '?').join(',')})`,
+        userIds
+      );
+      if (rows.length === 0) return res.status(404).json({ message: 'No matching users found.' });
+      targets = rows;
+      // targetLabel is (re)computed below from toActivate, after the duplicate check —
+      // multi-user labels enumerate names, so they must reflect who's actually being activated.
     } else if (target_type === 'guest') {
       // Guest targeting is multi-select (checkboxes in the UI), so target_id arrives as an array —
       // still accept a bare id too so a single guest works the same as everywhere else.
@@ -98,17 +107,42 @@ router.post('/', async (req, res) => {
       // targetLabel is (re)computed below from toActivate, after the duplicate check —
       // guest labels enumerate names, so they must reflect who's actually being activated.
     } else if (target_type === 'section') {
-      const [[section]] = await db.query('SELECT id, name FROM sections WHERE id = ?', [target_id]);
-      if (!section) return res.status(404).json({ message: 'Section not found.' });
-      const [rows] = await db.query('SELECT id, full_name FROM users WHERE section_id = ?', [target_id]);
+      // Sections are multi-select too — unlike user/guest labels, the label describes the
+      // criterion (section names), so it doesn't need rebuilding after the duplicate check.
+      const sectionIds = Array.isArray(target_id) ? target_id : [target_id];
+      if (sectionIds.length === 0)
+        return res.status(400).json({ message: 'At least one section must be selected.' });
+      const [sections] = await db.query(
+        `SELECT id, name FROM sections WHERE id IN (${sectionIds.map(() => '?').join(',')})`,
+        sectionIds
+      );
+      if (sections.length === 0) return res.status(404).json({ message: 'No matching sections found.' });
+      const [rows] = await db.query(
+        `SELECT id, full_name FROM users WHERE section_id IN (${sections.map(() => '?').join(',')})`,
+        sections.map((s) => s.id)
+      );
       targets = rows;
-      targetLabel = `Section: ${section.name}`;
+      targetLabel = sections.length === 1
+        ? `Section: ${sections[0].name}`
+        : `Sections: ${sections.slice(0, 3).map((s) => s.name).join(', ')}${sections.length > 3 ? ` +${sections.length - 3} more` : ''}`;
     } else if (target_type === 'course') {
-      const [[course]] = await db.query('SELECT id, code, name FROM courses WHERE id = ?', [target_id]);
-      if (!course) return res.status(404).json({ message: 'Course not found.' });
-      const [rows] = await db.query('SELECT id, full_name FROM users WHERE course_id = ?', [target_id]);
+      const courseIds = Array.isArray(target_id) ? target_id : [target_id];
+      if (courseIds.length === 0)
+        return res.status(400).json({ message: 'At least one course must be selected.' });
+      const [courses] = await db.query(
+        `SELECT id, code, name FROM courses WHERE id IN (${courseIds.map(() => '?').join(',')})`,
+        courseIds
+      );
+      if (courses.length === 0) return res.status(404).json({ message: 'No matching courses found.' });
+      const [rows] = await db.query(
+        `SELECT id, full_name FROM users WHERE course_id IN (${courses.map(() => '?').join(',')})`,
+        courses.map((c) => c.id)
+      );
       targets = rows;
-      targetLabel = `Course: ${course.code || course.name}`;
+      const courseLabels = courses.map((c) => c.code || c.name);
+      targetLabel = courses.length === 1
+        ? `Course: ${courseLabels[0]}`
+        : `Courses: ${courseLabels.slice(0, 3).join(', ')}${courses.length > 3 ? ` +${courses.length - 3} more` : ''}`;
     } else if (target_type === 'role') {
       if (!VALID_ROLES.includes(target_id))
         return res.status(400).json({ message: 'role must be one of: student, faculty, staff.' });
@@ -146,6 +180,10 @@ router.post('/', async (req, res) => {
       targetLabel = toActivate.length === 1
         ? `Guest: ${toActivate[0].full_name}`
         : `Guests: ${toActivate.slice(0, 3).map((t) => t.full_name).join(', ')}${toActivate.length > 3 ? ` +${toActivate.length - 3} more` : ''}`;
+    } else if (target_type === 'user') {
+      targetLabel = toActivate.length === 1
+        ? toActivate[0].full_name
+        : `Users: ${toActivate.slice(0, 3).map((t) => t.full_name).join(', ')}${toActivate.length > 3 ? ` +${toActivate.length - 3} more` : ''}`;
     }
 
     const batchId = toActivate.length > 1 ? crypto.randomUUID() : null;

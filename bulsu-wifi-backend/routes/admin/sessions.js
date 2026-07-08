@@ -107,12 +107,11 @@ router.get('/', async (req, res) => {
     const offset = (page - 1) * limit;
     const { where, params } = buildDateFilter(req.query, 's', 'u');
     const [sessions] = await db.query(`
-      SELECT s.id, u.full_name, u.student_number, u.role, d.mac_address, s.ip_address,
+      SELECT s.id, u.full_name, u.student_number, u.role, s.mac_address, s.ip_address,
              s.login_time, s.logout_time, s.status, s.logout_reason,
              TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes
       FROM sessions s
       JOIN users u ON s.user_id = u.id
-      JOIN devices d ON s.device_id = d.id
       ${where} ORDER BY s.login_time DESC LIMIT ? OFFSET ?
     `, [...params, Number(limit), Number(offset)]);
     const [[{ total }]] = await db.query(
@@ -129,12 +128,11 @@ router.get('/export', async (req, res) => {
   try {
     const { where, params } = buildDateFilter(req.query, 's', 'u');
     const [rows] = await db.query(`
-      SELECT u.student_number, u.full_name, u.role, d.mac_address, s.ip_address,
+      SELECT u.student_number, u.full_name, u.role, s.mac_address, s.ip_address,
              s.login_time, s.logout_time, s.status, s.logout_reason,
              TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes
       FROM sessions s
       JOIN users u ON s.user_id = u.id
-      JOIN devices d ON s.device_id = d.id
       ${where} ORDER BY s.login_time DESC
     `, params);
 

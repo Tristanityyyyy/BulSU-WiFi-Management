@@ -22,13 +22,13 @@ function downloadXlsx(data, filename) {
 
 function StatusBadge({ status }) {
   const map = {
-    active: "bg-green-50 text-green-700 border-green-200",
-    ended: "bg-gray-100 text-gray-500 border-gray-200",
-    "force-disconnected": "bg-red-50 text-red-600 border-red-200",
-    timeout: "bg-orange-50 text-orange-600 border-orange-200",
+    active: "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-900",
+    ended: "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-wine-700",
+    "force-disconnected": "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900",
+    timeout: "bg-orange-50 dark:bg-orange-950/30 text-orange-600 border-orange-200",
   };
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${map[status] ?? "bg-gray-100 text-gray-500"}`}>
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${map[status] ?? "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400"}`}>
       {status}
     </span>
   );
@@ -79,26 +79,26 @@ export default function AdminSessions() {
 
   const userRows = rows.map((s) => (
     <>
-      <td className="px-4 py-2 text-gray-800">{s.full_name}</td>
-      <td className="px-4 py-2 text-xs text-gray-500">{s.student_number ?? "—"}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.mac_address}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.ip_address}</td>
-      <td className="px-4 py-2 text-xs text-gray-500">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-500">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-600">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
+      <td className="px-4 py-2 text-gray-800 dark:text-gray-100">{s.full_name}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.student_number ?? "—"}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.mac_address}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.ip_address}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
-      <td className="px-4 py-2 text-xs text-gray-500">{s.logout_reason ?? "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_reason ?? "—"}</td>
     </>
   ));
 
   const guestRows = rows.map((s) => (
     <>
-      <td className="px-4 py-2 text-gray-800">{s.guest_name}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.mac_address}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.ip_address}</td>
-      <td className="px-4 py-2 text-xs text-gray-500">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-500">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-600">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
+      <td className="px-4 py-2 text-gray-800 dark:text-gray-100">{s.guest_name}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.mac_address}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.ip_address}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
     </>
   ));
@@ -106,7 +106,7 @@ export default function AdminSessions() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-gray-800">Session Logs</h2>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Session Logs</h2>
         <button onClick={handleExport}
           className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow transition">
           <Download size={14} /> Export Excel
@@ -118,7 +118,7 @@ export default function AdminSessions() {
         {TABS.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
-              tab === t.key ? "bg-pink-600 text-white shadow" : "bg-white border border-pink-200 text-gray-600 hover:bg-pink-50"
+              tab === t.key ? "bg-pink-600 text-white shadow" : "bg-white dark:bg-wine-900 border border-pink-200 dark:border-pink-900 text-gray-600 dark:text-gray-300 hover:bg-pink-50 dark:hover:bg-pink-950/40"
             }`}>
             {t.label}
           </button>
@@ -128,11 +128,11 @@ export default function AdminSessions() {
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
         <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400" />
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400" />
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400" />
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400" />
         <select value={status} onChange={(e) => setStatus(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
           <option value="">All Statuses</option>
           <option value="active">Active</option>
           <option value="ended">Ended</option>
@@ -141,7 +141,7 @@ export default function AdminSessions() {
         </select>
         {!isGuest && (
           <select value={logoutReason} onChange={(e) => setLogoutReason(e.target.value)}
-            className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+            className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
             <option value="">All Reasons</option>
             <option value="user_logout">User Logout</option>
             <option value="timeout">Timeout</option>

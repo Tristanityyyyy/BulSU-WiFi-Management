@@ -5,6 +5,16 @@
     <link rel="icon" type="image/png" href="/bulsu-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BulSU Wi-Fi Portal</title>
+    <script>
+      // Pre-apply dark theme on admin pages before first paint to avoid a white flash.
+      // Portal pages (/, /guest, /dashboard) are always light — see src/theme.jsx.
+      (function () {
+        if (!location.pathname.startsWith("/admin")) return;
+        var t = localStorage.getItem("theme");
+        var dark = t === "dark" || ((t === "system" || !t) && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

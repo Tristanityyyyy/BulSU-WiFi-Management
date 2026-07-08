@@ -222,20 +222,20 @@ export default function AdminUsers() {
     const courseSection = sectionLabel ? `${courseLabel} / ${sectionLabel}` : courseLabel;
     return (
       <>
-        <td className="px-4 py-2 text-gray-700 font-mono text-xs">{u.student_number}</td>
-        <td className="px-4 py-2 text-gray-800">{u.full_name}</td>
-        <td className="px-4 py-2 text-gray-600 text-xs">{courseSection}</td>
+        <td className="px-4 py-2 text-gray-700 dark:text-gray-300 font-mono text-xs">{u.student_number}</td>
+        <td className="px-4 py-2 text-gray-800 dark:text-gray-100">{u.full_name}</td>
+        <td className="px-4 py-2 text-gray-600 dark:text-gray-300 text-xs">{courseSection}</td>
         <td className="px-4 py-2">
           {u.enrollment_status ? (
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.enrollment_status === "enrolled" ? "bg-green-50 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500"}`}>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.enrollment_status === "enrolled" ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-900" : "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400"}`}>
               {humanize(u.enrollment_status)}
             </span>
           ) : (
-            <span className="text-xs text-gray-400">—</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
           )}
         </td>
         <td className="px-4 py-2">
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "active" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.status === "active" ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-900" : "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900"}`}>
             {humanize(u.status)}
           </span>
         </td>
@@ -243,21 +243,21 @@ export default function AdminUsers() {
           <div className="flex gap-3 flex-wrap items-center">
             {u.status === "active" ? (
               <button onClick={() => setConfirm({ action: "block", userId: u.id, label: `Block ${u.full_name}?` })}
-                className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline">
+                className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline">
                 <ShieldOff size={12} />Block
               </button>
             ) : (
               <button onClick={() => setConfirm({ action: "unblock", userId: u.id, label: `Unblock ${u.full_name}?` })}
-                className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline">
+                className="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-300 hover:underline">
                 <ShieldCheck size={12} />Unblock
               </button>
             )}
             <button onClick={() => setConfirm({ action: "disconnect", userId: u.id, label: `Force-disconnect ${u.full_name}?` })}
-              className="inline-flex items-center gap-1 text-xs text-pink-600 hover:underline">
+              className="inline-flex items-center gap-1 text-xs text-pink-600 dark:text-pink-400 hover:underline">
               <WifiOff size={12} />Disconnect
             </button>
             <button onClick={() => setModal(u)}
-              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:underline">
+              className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
               <Pencil size={12} />Edit
             </button>
           </div>
@@ -269,26 +269,26 @@ export default function AdminUsers() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-gray-800">Users</h2>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Users</h2>
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setModal("add")}
             className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow transition">
             <UserPlus size={14} /> Add User
           </button>
-          <div className="inline-flex items-center rounded-xl border border-pink-200 bg-white shadow overflow-hidden">
+          <div className="inline-flex items-center rounded-xl border border-pink-200 dark:border-pink-900 bg-white dark:bg-wine-900 shadow overflow-hidden">
             <select value={templateRole} onChange={(e) => setTemplateRole(e.target.value)}
-              className="text-xs font-semibold text-pink-700 pl-3 pr-1 py-2 bg-transparent focus:outline-none capitalize">
+              className="text-xs font-semibold text-pink-700 dark:text-pink-300 pl-3 pr-1 py-2 bg-transparent focus:outline-none capitalize">
               {["student", "faculty", "staff"].map((r) => (
                 <option key={r} value={r} className="capitalize">{r}</option>
               ))}
             </select>
             <button onClick={downloadCsvTemplate}
-              className="inline-flex items-center gap-1.5 text-pink-700 text-xs font-semibold pl-2 pr-4 py-2 hover:bg-pink-50 transition border-l border-pink-100">
+              className="inline-flex items-center gap-1.5 text-pink-700 dark:text-pink-300 text-xs font-semibold pl-2 pr-4 py-2 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition border-l border-pink-100 dark:border-pink-900/60">
               <Download size={14} /> Download Template
             </button>
           </div>
           <button onClick={() => fileRef.current?.click()}
-            className="inline-flex items-center gap-1.5 bg-white border border-pink-200 text-pink-700 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 transition">
+            className="inline-flex items-center gap-1.5 bg-white dark:bg-wine-900 border border-pink-200 dark:border-pink-900 text-pink-700 dark:text-pink-300 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 dark:hover:bg-pink-950/40 transition">
             <Upload size={14} /> Import File
           </button>
         </div>
@@ -301,10 +301,10 @@ export default function AdminUsers() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search student no., name…"
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white min-w-[200px]"
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white dark:bg-wine-900 min-w-[200px]"
         />
         <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
           <option value="">All Roles</option>
           <option value="student">Student</option>
           <option value="faculty">Faculty</option>
@@ -312,13 +312,13 @@ export default function AdminUsers() {
           <option value="admin">Admin</option>
         </select>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
           <option value="">All Statuses</option>
           <option value="active">Active</option>
           <option value="blocked">Blocked</option>
         </select>
         <select value={filterEnrollment} onChange={(e) => setFilterEnrollment(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
           <option value="">All Enrollment</option>
           <option value="enrolled">Enrolled</option>
           <option value="not_enrolled">Not Enrolled</option>
@@ -339,52 +339,52 @@ export default function AdminUsers() {
           icon={<Upload size={17} />}
           footer={
             <div className="flex gap-3">
-              <button onClick={resetCsv} className="flex-1 border border-slate-200 text-gray-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 transition">Cancel</button>
+              <button onClick={resetCsv} className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
               <button onClick={confirmCsvImport} disabled={importRole === "student" && invalidCsvRowCount > 0}
-                className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 hover:from-pink-700 hover:to-rose-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition">
+                className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none hover:from-pink-700 hover:to-rose-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition">
                 Import {csvRows.length} rows
               </button>
             </div>
           }
         >
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs font-medium text-gray-600">Import these as:</span>
-            <div className="inline-flex rounded-xl border border-pink-200 overflow-hidden">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Import these as:</span>
+            <div className="inline-flex rounded-xl border border-pink-200 dark:border-pink-900 overflow-hidden">
               {["student", "faculty", "staff"].map((r) => (
                 <button key={r} type="button" onClick={() => setImportRole(r)}
-                  className={`px-3 py-1 text-xs font-medium capitalize transition ${importRole === r ? "bg-pink-600 text-white" : "bg-white text-gray-600 hover:bg-pink-50"}`}>
+                  className={`px-3 py-1 text-xs font-medium capitalize transition ${importRole === r ? "bg-pink-600 text-white" : "bg-white dark:bg-wine-900 text-gray-600 dark:text-gray-300 hover:bg-pink-50 dark:hover:bg-pink-950/40"}`}>
                   {r}
                 </button>
               ))}
             </div>
           </div>
           {importRole === "student" && invalidCsvRowCount > 0 && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">
+            <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">
               {invalidCsvRowCount} row(s) below reference a course or section that isn't registered in the system (highlighted in red). The import will be rejected until these are fixed.
             </p>
           )}
           {importRole !== "student" && (
-            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 mb-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 border border-gray-200 dark:border-wine-700 rounded-xl px-3 py-2 mb-3">
               Course/Section are ignored for {importRole} imports.
             </p>
           )}
-          <div className="overflow-auto max-h-[45vh] border border-pink-100 rounded-xl">
+          <div className="overflow-auto max-h-[45vh] border border-pink-100 dark:border-pink-900/60 rounded-xl">
             <table className="w-full text-xs">
-              <thead className="bg-pink-50 sticky top-0">
+              <thead className="bg-pink-50 dark:bg-pink-950/40 sticky top-0">
                 <tr>{["Student No.", "Name", "Birth Date", "Course Code", "Section Name", "School Year", "Semester", "Enrollment"].map((h) => (
-                  <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-3 py-2 text-left text-gray-600 dark:text-gray-300 font-semibold whitespace-nowrap">{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
                 {csvRows.slice(0, 50).map((r, i) => {
                   const invalid = importRole === "student" && !isImportRowValid(r);
                   return (
-                    <tr key={i} className={`border-b border-pink-50 ${invalid ? "bg-red-50" : ""}`}>
+                    <tr key={i} className={`border-b border-pink-50 ${invalid ? "bg-red-50 dark:bg-red-950/30" : ""}`}>
                       <td className="px-3 py-1.5 font-mono">{r.student_number}</td>
                       <td className="px-3 py-1.5">{r.full_name}</td>
                       <td className="px-3 py-1.5">{r.birth_date}</td>
-                      <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.course_code}</td>
-                      <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.section_name}</td>
+                      <td className={`px-3 py-1.5 ${invalid ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.course_code}</td>
+                      <td className={`px-3 py-1.5 ${invalid ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.section_name}</td>
                       <td className="px-3 py-1.5">{r.school_year}</td>
                       <td className="px-3 py-1.5">{r.semester}</td>
                       <td className="px-3 py-1.5">{r.enrollment_status}</td>
@@ -401,7 +401,7 @@ export default function AdminUsers() {
         <Modal showClose={false}>
           <div className="flex flex-col items-center gap-4 py-2">
             <LoadingSpinner size={36} className="text-pink-400" />
-            <p className="text-sm text-gray-600">Importing users…</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300">Importing users…</p>
           </div>
         </Modal>
       )}
@@ -412,18 +412,18 @@ export default function AdminUsers() {
             {csvResult.rejected ? (
               <>
                 <div className="flex justify-center mb-3">
-                  <span className="w-14 h-14 rounded-full bg-red-50 border border-red-100 flex items-center justify-center animate-pop-in">
+                  <span className="w-14 h-14 rounded-full bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/60 flex items-center justify-center animate-pop-in">
                     <AlertTriangle size={26} className="text-red-500" strokeWidth={1.8} />
                   </span>
                 </div>
-                <p className="text-base font-semibold text-gray-900 mb-1">Import Rejected</p>
-                <p className="text-sm text-red-600 mb-3">{csvResult.message}</p>
-                <div className="overflow-auto max-h-[35vh] text-left border border-red-100 rounded-xl divide-y divide-red-50">
+                <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">Import Rejected</p>
+                <p className="text-sm text-red-600 dark:text-red-400 mb-3">{csvResult.message}</p>
+                <div className="overflow-auto max-h-[35vh] text-left border border-red-100 dark:border-red-900/60 rounded-xl divide-y divide-red-50 dark:divide-wine-800/70">
                   {csvResult.invalid_rows.map((r, i) => (
                     <div key={i} className="px-3 py-2 text-xs">
-                      <span className="font-mono text-gray-500">Row {r.row}</span>
-                      {r.student_number && <span className="text-gray-500"> ({r.student_number})</span>}
-                      <span className="block text-red-700">{r.reason}</span>
+                      <span className="font-mono text-gray-500 dark:text-gray-400">Row {r.row}</span>
+                      {r.student_number && <span className="text-gray-500 dark:text-gray-400"> ({r.student_number})</span>}
+                      <span className="block text-red-700 dark:text-red-300">{r.reason}</span>
                     </div>
                   ))}
                 </div>
@@ -432,21 +432,21 @@ export default function AdminUsers() {
               <>
                 <div className="flex justify-center mb-3">
                   <span className={`w-14 h-14 rounded-full border flex items-center justify-center animate-pop-in ${
-                    csvResult.failed === 0 ? "bg-green-50 border-green-100" : "bg-orange-50 border-orange-100"
+                    csvResult.failed === 0 ? "bg-green-50 dark:bg-green-950/30 border-green-100 dark:border-green-900/60" : "bg-orange-50 dark:bg-orange-950/30 border-orange-100 dark:border-orange-900/60"
                   }`}>
                     {csvResult.failed === 0
-                      ? <CheckCircle2 size={26} className="text-green-600" strokeWidth={1.8} />
-                      : <AlertTriangle size={26} className="text-orange-500" strokeWidth={1.8} />}
+                      ? <CheckCircle2 size={26} className="text-green-600 dark:text-green-400" strokeWidth={1.8} />
+                      : <AlertTriangle size={26} className="text-orange-500 dark:text-orange-400" strokeWidth={1.8} />}
                   </span>
                 </div>
-                <p className="text-base font-semibold text-gray-900 mb-1">Import Complete</p>
-                <p className="text-sm text-green-700">{csvResult.success} rows imported successfully.</p>
-                {csvResult.failed > 0 && <p className="text-sm text-red-600">{csvResult.failed} rows failed.</p>}
-                {csvResult.message && <p className="text-sm text-red-600">{csvResult.message}</p>}
+                <p className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">Import Complete</p>
+                <p className="text-sm text-green-700 dark:text-green-300">{csvResult.success} rows imported successfully.</p>
+                {csvResult.failed > 0 && <p className="text-sm text-red-600 dark:text-red-400">{csvResult.failed} rows failed.</p>}
+                {csvResult.message && <p className="text-sm text-red-600 dark:text-red-400">{csvResult.message}</p>}
               </>
             )}
             <button onClick={() => { resetCsv(); fetchUsers(1); }}
-              className="mt-5 w-full bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 shrink-0 transition">
+              className="mt-5 w-full bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none shrink-0 transition">
               Done
             </button>
           </div>
@@ -535,28 +535,28 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
       subtitle={user ? "Update this account's details." : "Create a new account for a student, faculty or staff member."}
       icon={user ? <Pencil size={16} /> : <UserPlus size={17} />}
     >
-      {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">{error}</p>}
+      {error && <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">{error}</p>}
       <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Student Number</label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Student Number</label>
             <input type="text" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })}
-              className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+              className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
               Full Name
-              <span className="ml-1 font-normal text-gray-400">(Last, First Middle)</span>
+              <span className="ml-1 font-normal text-gray-400 dark:text-gray-500">(Last, First Middle)</span>
             </label>
             <input type="text" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })}
               placeholder="e.g. Dela Cruz, Juan Miguel"
-              className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+              className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
           </div>
           {!isAdminAccount && (
             <>
               <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Course</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Course</label>
                 <select value={form.course_id} onChange={(e) => handleCourseChange(e.target.value)}
-                  className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
+                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
                   <option value="">Select course</option>
                   {(courses || []).map((course) => (
                     <option key={course.id} value={course.id}>{course.code || course.name}</option>
@@ -564,9 +564,9 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Section</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Section</label>
                 <select value={form.section_id} onChange={(e) => setForm({ ...form, section_id: e.target.value })}
-                  className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:bg-gray-100 disabled:cursor-not-allowed" required={!!form.course_id} disabled={!form.course_id}>
+                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:bg-gray-100 disabled:cursor-not-allowed" required={!!form.course_id} disabled={!form.course_id}>
                   <option value="">Select section</option>
                   {sectionOptions.map((section) => (
                     <option key={section.id} value={section.id}>{section.name}</option>
@@ -574,9 +574,9 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Role</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Role</label>
                 <select value={form.role} onChange={(e) => handleRoleChange(e.target.value)} required
-                  className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 capitalize disabled:bg-gray-100 disabled:cursor-not-allowed" disabled={!!form.course_id}>
+                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 capitalize disabled:bg-gray-100 disabled:cursor-not-allowed" disabled={!!form.course_id}>
                   <option value="" disabled>Select role</option>
                   {USER_ROLES.map((role) => (
                     <option key={role} value={role} disabled={role === "student" && !form.course_id} className="capitalize">
@@ -587,9 +587,9 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
               </div>
               {isStudentRole && (
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Enrollment Status</label>
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Enrollment Status</label>
                   <select value={form.enrollment_status} onChange={(e) => setForm({ ...form, enrollment_status: e.target.value })}
-                    className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
+                    className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
                     <option value="enrolled">Enrolled</option>
                     <option value="not_enrolled">Not Enrolled</option>
                   </select>
@@ -600,23 +600,23 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
 
           {!user && (
             <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Birthdate</label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Birthdate</label>
               <input type="date" value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
-                className="w-full border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+                className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
               {derivedPassword && (
-                <div className="mt-2 bg-pink-50 border border-pink-200 rounded-xl px-3 py-2">
-                  <p className="text-xs text-gray-500 mb-0.5">Generated password</p>
-                  <p className="text-sm font-mono font-semibold text-pink-700">{derivedPassword}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Share this with the user so they can log in.</p>
+                <div className="mt-2 bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Generated password</p>
+                  <p className="text-sm font-mono font-semibold text-pink-700 dark:text-pink-300">{derivedPassword}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Share this with the user so they can log in.</p>
                 </div>
               )}
             </div>
           )}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 border border-slate-200 text-gray-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 transition">Cancel</button>
+            <button type="button" onClick={onClose} className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
             <button type="submit" disabled={saving || (!user && !derivedPassword)}
-              className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 disabled:opacity-60 disabled:shadow-none transition">
+              className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none disabled:opacity-60 disabled:shadow-none transition">
               {saving ? "Saving…" : "Save"}
             </button>
           </div>

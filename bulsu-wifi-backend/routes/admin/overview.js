@@ -4,10 +4,11 @@ const db = require('../../db');
 // GET /api/admin/overview/stats
 router.get('/stats', async (req, res) => {
   try {
-    const [[{ totalUsers }]] = await db.query('SELECT COUNT(*) AS totalUsers FROM users WHERE role = "student"');
+    const [[{ enrolledStudents }]] = await db.query('SELECT COUNT(*) AS enrolledStudents FROM users WHERE role = "student" AND enrollment_status = "enrolled"');
+    const [[{ facultyCount }]] = await db.query('SELECT COUNT(*) AS facultyCount FROM users WHERE role = "faculty"');
     const [[{ activeSessions }]] = await db.query('SELECT COUNT(*) AS activeSessions FROM sessions WHERE status = "active"');
     const [[{ activeGuests }]] = await db.query('SELECT COUNT(*) AS activeGuests FROM guest_sessions WHERE status = "active"');
-    res.json({ totalUsers, activeSessions, activeGuests, bandwidthMbps: 0 });
+    res.json({ enrolledStudents, facultyCount, activeSessions, activeGuests });
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch stats.' });
   }
@@ -17,10 +18,9 @@ router.get('/stats', async (req, res) => {
 router.get('/connected', async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT s.id AS session_id, u.full_name, u.student_number, d.mac_address, s.ip_address, s.login_time
+      SELECT s.id AS session_id, u.full_name, u.student_number, s.mac_address, s.ip_address, s.login_time
       FROM sessions s
       JOIN users u ON s.user_id = u.id
-      JOIN devices d ON s.device_id = d.id
       WHERE s.status = 'active'
       ORDER BY s.login_time DESC
     `);

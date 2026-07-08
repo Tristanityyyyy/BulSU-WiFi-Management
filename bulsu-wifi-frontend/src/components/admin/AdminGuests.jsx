@@ -51,33 +51,33 @@ function QrModal({ guest, title, subtitle, onClose }) {
     <Modal onClose={onClose}>
       <div className="flex flex-col items-center gap-4 text-center">
         <div>
-          <p className="text-base font-semibold text-gray-900">{title}</p>
-          {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+          <p className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+          {subtitle && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{subtitle}</p>}
         </div>
-        <div ref={qrCanvasRef} className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm animate-pop-in">
+        <div ref={qrCanvasRef} className="p-4 bg-white dark:bg-wine-900 border border-slate-200 dark:border-wine-800 rounded-2xl shadow-sm animate-pop-in">
           <QRCodeCanvas value={`${GUEST_PORTAL}?token=${guestToken(guest)}`} size={180} />
         </div>
         <div className="w-full grid grid-cols-2 gap-2 text-left">
-          <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Starts</p>
-            <p className="text-xs font-medium text-gray-700 mt-0.5">{new Date(guest.starts_at).toLocaleString()}</p>
+          <div className="bg-slate-50 dark:bg-wine-900 border border-slate-100 dark:border-wine-800/70 rounded-xl px-3 py-2">
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">Starts</p>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mt-0.5">{new Date(guest.starts_at).toLocaleString()}</p>
           </div>
-          <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Expires</p>
-            <p className="text-xs font-medium text-gray-700 mt-0.5">{new Date(guest.expires_at).toLocaleString()}</p>
+          <div className="bg-slate-50 dark:bg-wine-900 border border-slate-100 dark:border-wine-800/70 rounded-xl px-3 py-2">
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">Expires</p>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mt-0.5">{new Date(guest.expires_at).toLocaleString()}</p>
           </div>
-          <div className="col-span-2 bg-pink-50 border border-pink-100 rounded-xl px-3 py-2">
+          <div className="col-span-2 bg-pink-50 dark:bg-pink-950/40 border border-pink-100 dark:border-pink-900/60 rounded-xl px-3 py-2">
             <p className="text-[10px] font-semibold text-pink-400 uppercase tracking-wide">Data Limit</p>
-            <p className="text-xs font-semibold text-pink-700 mt-0.5">{guest.data_limit_gb} GB</p>
+            <p className="text-xs font-semibold text-pink-700 dark:text-pink-300 mt-0.5">{guest.data_limit_gb} GB</p>
           </div>
         </div>
         <div className="w-full flex gap-2">
           <button onClick={handleDownload}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-pink-50 text-pink-600 border border-pink-200 rounded-xl px-3 py-2.5 hover:bg-pink-100 transition">
+            className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2.5 hover:bg-pink-100 transition">
             <Download size={13} /> Download
           </button>
           <button onClick={() => printGuestQr(guest)}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-pink-50 text-pink-600 border border-pink-200 rounded-xl px-3 py-2.5 hover:bg-pink-100 transition">
+            className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2.5 hover:bg-pink-100 transition">
             <Printer size={13} /> Print
           </button>
         </div>
@@ -113,22 +113,22 @@ function EditGuestModal({ guest, onClose, onSaved }) {
       subtitle="Adjust when this guest pass starts and expires."
       icon={<Pencil size={16} />}
     >
-      {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">{error}</p>}
+      {error && <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">{error}</p>}
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Start Time</label>
+          <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Start Time</label>
           <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)}
-            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition" required />
+            className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition" required />
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">End Time</label>
+          <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">End Time</label>
           <input type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)}
-            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition" required />
+            className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition" required />
         </div>
         <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 border border-slate-200 text-gray-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 transition">Cancel</button>
+          <button type="button" onClick={onClose} className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
           <button type="submit" disabled={saving}
-            className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 disabled:opacity-60 disabled:shadow-none transition">
+            className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none disabled:opacity-60 disabled:shadow-none transition">
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
@@ -213,38 +213,38 @@ export default function AdminGuests() {
     const expired = isGuestExpired(g);
     return (
       <>
-        <td className="px-4 py-2 text-xs text-gray-500">{g.data_limit_gb ? `${g.data_limit_gb} GB` : "—"}</td>
-        <td className="px-4 py-2 text-xs text-gray-500">{new Date(g.starts_at).toLocaleString()}</td>
-        <td className="px-4 py-2 text-xs text-gray-500">{new Date(g.expires_at).toLocaleString()}</td>
+        <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{g.data_limit_gb ? `${g.data_limit_gb} GB` : "—"}</td>
+        <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{new Date(g.starts_at).toLocaleString()}</td>
+        <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{new Date(g.expires_at).toLocaleString()}</td>
         <td className="px-4 py-2">
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
-            g.status === "active" ? "bg-green-50 text-green-700 border-green-200"
-            : g.status === "used" ? "bg-gray-100 text-gray-500 border-gray-200"
-            : "bg-red-50 text-red-600 border-red-200"
+            g.status === "active" ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-900"
+            : g.status === "used" ? "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-wine-700"
+            : "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900"
           }`}>{g.status}</span>
         </td>
         <td className="px-4 py-2">
           <div className="flex gap-3 flex-nowrap items-center">
             <button onClick={() => setViewGuest(g)}
-              className="inline-flex items-center gap-1 text-xs text-pink-600 hover:underline shrink-0">
+              className="inline-flex items-center gap-1 text-xs text-pink-600 dark:text-pink-400 hover:underline shrink-0">
               <Eye size={12} /> View
             </button>
             <button onClick={() => setEditGuest(g)}
-              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:underline shrink-0">
+              className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline shrink-0">
               <Pencil size={12} /> Edit
             </button>
             <button
               onClick={() => g.status === "active" && setConfirm({ id: g.id, action: "revoke", label: "Revoke this guest QR code?" })}
               disabled={g.status !== "active"}
               title={g.status !== "active" ? "Only active guest codes can be revoked" : undefined}
-              className={`inline-flex items-center gap-1 text-xs shrink-0 ${g.status === "active" ? "text-red-600 hover:underline" : "text-gray-300 cursor-not-allowed"}`}>
+              className={`inline-flex items-center gap-1 text-xs shrink-0 ${g.status === "active" ? "text-red-600 dark:text-red-400 hover:underline" : "text-gray-300 dark:text-wine-700 cursor-not-allowed"}`}>
               <Ban size={12} /> Revoke
             </button>
             <button
               onClick={() => expired && setConfirm({ id: g.id, action: "delete", label: "Delete this guest code? This cannot be undone." })}
               disabled={!expired}
               title={!expired ? "Only expired guest codes can be deleted" : undefined}
-              className={`inline-flex items-center gap-1 text-xs shrink-0 ${expired ? "text-red-600 hover:underline" : "text-gray-300 cursor-not-allowed"}`}>
+              className={`inline-flex items-center gap-1 text-xs shrink-0 ${expired ? "text-red-600 dark:text-red-400 hover:underline" : "text-gray-300 dark:text-wine-700 cursor-not-allowed"}`}>
               <Trash2 size={12} /> Delete
             </button>
           </div>
@@ -255,36 +255,36 @@ export default function AdminGuests() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-base font-semibold text-gray-800">Guest Access</h2>
+      <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Guest Access</h2>
 
       {/* Generate form */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-        <p className="text-sm font-semibold text-gray-700 mb-1">Generate Guest QR Code</p>
-        <p className="text-xs text-gray-400 mb-4">No name or password needed — the guest will enter their name after scanning.</p>
+      <div className="bg-white dark:bg-wine-900 rounded-2xl shadow-sm border border-slate-200 dark:border-wine-800 p-5">
+        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Generate Guest QR Code</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">No name or password needed — the guest will enter their name after scanning.</p>
         {generateError && (
-          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">{generateError}</p>
+          <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">{generateError}</p>
         )}
         <form onSubmit={handleGenerate} className="flex flex-wrap gap-3 items-end">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Start Time</label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Start Time</label>
             <input type="datetime-local" value={form.starts_at}
               onChange={(e) => setForm({ ...form, starts_at: e.target.value })}
-              className="border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+              className="border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">End Time</label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">End Time</label>
             <input type="datetime-local" value={form.expires_at}
               onChange={(e) => setForm({ ...form, expires_at: e.target.value })}
-              className="border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+              className="border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
               Data Limit (GB)
-              <span className="ml-1 text-gray-400 font-normal">(default: {defaultDataGb} GB from Settings)</span>
+              <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">(default: {defaultDataGb} GB from Settings)</span>
             </label>
             <input type="number" min={0.1} step={0.1} value={form.data_limit_gb}
               onChange={(e) => setForm({ ...form, data_limit_gb: parseFloat(e.target.value) })}
-              className="border border-pink-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 w-32" />
+              className="border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 w-32" />
           </div>
           <button type="submit" disabled={generating}
             className="inline-flex items-center gap-1.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl px-5 py-2 text-sm font-semibold shadow-md disabled:opacity-60 transition">
@@ -295,7 +295,7 @@ export default function AdminGuests() {
       </div>
 
       {actionError && (
-        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{actionError}</p>
+        <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2">{actionError}</p>
       )}
 
       {newGuest && (

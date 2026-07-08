@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Radio, KeyRound,
-  Siren, MessageSquare, Bell, Settings, LogOut,
+  Siren, MessageSquare, Bell, Settings, LogOut, Sun, Moon,
 } from "lucide-react";
+import { useTheme } from "../../theme";
 
 // Grouped by what campus IT actually does with each screen.
 const NAV_GROUPS = [
@@ -55,6 +56,9 @@ function ArcWatermark() {
 
 export default function AdminLayout() {
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
+  const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
   const handleLogout = () => {
     localStorage.removeItem("adminToken");
@@ -62,7 +66,7 @@ export default function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen flex bg-blush-50">
+    <div className="min-h-screen flex bg-blush-50 dark:bg-wine-975">
       {/* Sidebar */}
       <aside className="hidden md:flex flex-col w-56 bg-wine-950 border-r border-wine-800 p-4 shrink-0 sticky top-0 h-screen overflow-y-auto">
         <div className="mb-6 px-2 flex items-center gap-3">
@@ -111,6 +115,13 @@ export default function AdminLayout() {
         <div className="mt-auto relative">
           <ArcWatermark />
           <button
+            onClick={toggleTheme}
+            className="relative w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-pink-100/50 hover:bg-white/5 hover:text-pink-50 transition-all"
+          >
+            {isDark ? <Sun size={16} strokeWidth={2} /> : <Moon size={16} strokeWidth={2} />}
+            {isDark ? "Light mode" : "Dark mode"}
+          </button>
+          <button
             onClick={handleLogout}
             className="relative w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-pink-100/50 hover:bg-white/5 hover:text-pink-50 transition-all"
           >
@@ -128,6 +139,13 @@ export default function AdminLayout() {
             <span className="text-white font-display font-semibold text-sm">Admin</span>
           </div>
           <div className="flex gap-1 overflow-x-auto">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl text-pink-100/50 hover:bg-white/5 hover:text-pink-50 transition-all"
+              aria-label="Toggle theme"
+            >
+              {isDark ? <Sun size={18} strokeWidth={2} /> : <Moon size={18} strokeWidth={2} />}
+            </button>
             {FLAT_NAV.map(({ to, Icon }) => (
               <NavLink
                 key={to}

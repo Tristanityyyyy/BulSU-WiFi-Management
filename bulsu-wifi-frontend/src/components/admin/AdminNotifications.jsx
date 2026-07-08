@@ -68,19 +68,19 @@ export default function AdminNotifications() {
   const sectionOptions = (catalog.sections || []).filter((section) => String(section.course_id) === String(form.course_id));
   const tableRows = rows.map((n) => (
     <>
-      <td className="px-4 py-2 text-gray-700 text-xs font-mono">{n.user_id ?? "—"}</td>
+      <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-xs font-mono">{n.user_id ?? "—"}</td>
       <td className="px-4 py-2">
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${typeStyle(n.type)}`}>{typeLabel(n.type)}</span>
       </td>
-      <td className="px-4 py-2 text-gray-700 text-sm max-w-xs truncate">{n.message}</td>
-      <td className="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">{new Date(n.created_at).toLocaleString()}</td>
+      <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm max-w-xs truncate">{n.message}</td>
+      <td className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">{new Date(n.created_at).toLocaleString()}</td>
       <td className="px-4 py-2">
         {n.is_read ? (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-400">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-400 dark:text-gray-500">
             <span className="w-1.5 h-1.5 rounded-full bg-gray-300" /> Read
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-pink-600">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-pink-600 dark:text-pink-400">
             <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse" /> Unread
           </span>
         )}
@@ -92,18 +92,18 @@ export default function AdminNotifications() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-gray-800">Notifications</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Messages delivered to users across the network.</p>
+          <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Notifications</h2>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Messages delivered to users across the network.</p>
         </div>
         <button onClick={() => { setCompose(true); setSendSuccess(false); }}
-          className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-md shadow-pink-200 transition">
+          className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-md shadow-pink-200 dark:shadow-none transition">
           <Send size={13} /> Compose
         </button>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
           <option value="">All Types</option>
           <option value="session_warning">Session Warning</option>
           <option value="data_limit">Data Limit</option>
@@ -111,7 +111,7 @@ export default function AdminNotifications() {
           <option value="general">General</option>
         </select>
         <select value={filterRead} onChange={(e) => setFilterRead(e.target.value)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+          className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
           <option value="">All</option>
           <option value="0">Unread</option>
           <option value="1">Read</option>
@@ -130,12 +130,12 @@ export default function AdminNotifications() {
           subtitle="Deliver a message to a user, a section, or everyone."
           icon={<Send size={17} />}
         >
-          {sendError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">{sendError}</p>}
+          {sendError && <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">{sendError}</p>}
           <form onSubmit={handleSend} className="space-y-3">
             <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Send To</label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Send To</label>
               <select value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition">
+                className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition">
                 <option value="user">Specific User</option>
                 <option value="section">Course Section</option>
                 <option value="all">Everyone</option>
@@ -143,18 +143,18 @@ export default function AdminNotifications() {
             </div>
             {form.target === "user" && (
               <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">User ID</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">User ID</label>
                 <input value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+                  className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
                   required />
               </div>
             )}
             {form.target === "section" && (
               <div className="space-y-2">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Course</label>
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Course</label>
                   <select value={form.course_id} onChange={(e) => setForm({ ...form, course_id: e.target.value, section_id: "" })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+                    className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
                     required>
                     <option value="">Select course</option>
                     {(catalog.courses || []).map((course) => (
@@ -163,9 +163,9 @@ export default function AdminNotifications() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Section</label>
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Section</label>
                   <select value={form.section_id} onChange={(e) => setForm({ ...form, section_id: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition disabled:bg-gray-50 disabled:cursor-not-allowed"
+                    className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition disabled:bg-gray-50 disabled:cursor-not-allowed"
                     required disabled={!form.course_id}>
                     <option value="">Select section</option>
                     {sectionOptions.map((section) => (
@@ -176,17 +176,17 @@ export default function AdminNotifications() {
               </div>
             )}
             <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Message</label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Message</label>
               <textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })}
                 rows={3} placeholder="Type your message…"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition resize-none"
+                className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition resize-none"
                 required />
             </div>
             <div className="flex gap-3 pt-1">
               <button type="button" onClick={closeCompose}
-                className="flex-1 border border-slate-200 text-gray-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 transition">Cancel</button>
+                className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
               <button type="submit" disabled={sending}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 disabled:opacity-60 transition">
+                className="flex-1 inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none disabled:opacity-60 transition">
                 <Send size={13} />
                 {sending ? "Sending…" : "Send"}
               </button>
@@ -212,10 +212,10 @@ function typeLabel(type) {
 
 function typeStyle(type) {
   const map = {
-    session_warning: "bg-orange-50 text-orange-600 border-orange-200",
-    data_limit: "bg-red-50 text-red-600 border-red-200",
-    force_disconnect: "bg-red-50 text-red-700 border-red-200",
-    general: "bg-pink-50 text-pink-700 border-pink-200",
+    session_warning: "bg-orange-50 dark:bg-orange-950/30 text-orange-600 border-orange-200",
+    data_limit: "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900",
+    force_disconnect: "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900",
+    general: "bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border-pink-200 dark:border-pink-900",
   };
-  return map[type] ?? "bg-gray-100 text-gray-500 border-gray-200";
+  return map[type] ?? "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-wine-700";
 }
