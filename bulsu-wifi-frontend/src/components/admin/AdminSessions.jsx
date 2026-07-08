@@ -12,15 +12,8 @@ const TABS = [
   { key: "guest",   label: "Guest" },
 ];
 
-function toCSV(rows) {
-  if (!rows.length) return "";
-  const headers = Object.keys(rows[0]).join(",");
-  const lines = rows.map((r) => Object.values(r).map((v) => `"${v ?? ""}"`).join(","));
-  return [headers, ...lines].join("\n");
-}
-
-function downloadCSV(data, filename) {
-  const blob = new Blob([data], { type: "text/csv" });
+function downloadXlsx(data, filename) {
+  const blob = new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename; a.click();
@@ -75,8 +68,8 @@ export default function AdminSessions() {
     const endpoint = isGuest ? "/admin/sessions/guests/export" : "/admin/sessions/export";
     const params = { date_from: dateFrom, date_to: dateTo, status };
     if (!isGuest) { params.role = tab; params.logout_reason = logoutReason; }
-    const res = await adminApi.get(endpoint, { params });
-    downloadCSV(toCSV(res.data), `${tab}-sessions-${Date.now()}.csv`);
+    const res = await adminApi.get(endpoint, { params, responseType: "blob" });
+    downloadXlsx(res.data, `${tab}-sessions-${Date.now()}.xlsx`);
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -116,7 +109,7 @@ export default function AdminSessions() {
         <h2 className="text-base font-semibold text-gray-800">Session Logs</h2>
         <button onClick={handleExport}
           className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow transition">
-          <Download size={14} /> Export CSV
+          <Download size={14} /> Export Excel
         </button>
       </div>
 

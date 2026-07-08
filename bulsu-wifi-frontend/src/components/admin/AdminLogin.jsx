@@ -37,9 +37,9 @@ export default function AdminLogin() {
   };
 
   return (
-    <PageBackground imageSrc="/src/assets/bulsu-bg.png">
+    <PageBackground>
       <Card>
-        <BulsuHeader subtitle="Admin Dashboard" />
+        <BulsuHeader subtitle="Admin Console" />
         <form onSubmit={handleLogin}>
           <AlertBanner message={error} />
           <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Username</label>
@@ -48,7 +48,7 @@ export default function AdminLogin() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="admin"
-            className="w-full border border-pink-200 rounded-xl px-3 py-2.5 mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
             required
           />
           <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Password</label>
@@ -57,15 +57,15 @@ export default function AdminLogin() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
-            className="w-full border border-pink-200 rounded-xl px-3 py-2.5 mb-6 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 mb-6 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
             required
           />
           <Button type="submit" disabled={loading}>
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
         <p className="text-center text-xs text-gray-400 mt-4">
-          By connecting you agree to the BulSU Acceptable Use Policy.
+          Admin access is logged. Authorized personnel only.
         </p>
       </Card>
     </PageBackground>

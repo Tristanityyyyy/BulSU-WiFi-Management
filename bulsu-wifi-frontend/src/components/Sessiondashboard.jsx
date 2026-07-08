@@ -108,8 +108,9 @@ export default function SessionDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-900 via-pink-700 to-rose-500">
-        <LoadingSpinner className="text-white" />
+      <div className="min-h-screen flex items-center justify-center bg-wine-950">
+        <div className="absolute inset-0 bg-gradient-to-br from-wine-950 via-[#4c1631] to-rose-800" />
+        <LoadingSpinner className="relative text-white" />
       </div>
     );
   }
@@ -127,12 +128,13 @@ export default function SessionDashboard() {
   const ringColor = isLowData ? "#dc2626" : dataPct > 75 ? "#f59e0b" : "#db2777";
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center px-4 py-8 bg-gradient-to-br from-pink-900 via-pink-700 to-rose-500">
-      <div className="relative z-10 bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl p-6 sm:p-8 w-full max-w-xs sm:max-w-sm md:max-w-md">
+    <div className="relative min-h-screen flex items-center justify-center px-4 py-8 overflow-hidden bg-wine-950">
+      <div className="absolute inset-0 bg-gradient-to-br from-wine-950 via-[#4c1631] to-rose-800" />
+      <div className="relative z-10 bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl shadow-wine-950/40 ring-1 ring-white/20 p-6 sm:p-8 w-full max-w-xs sm:max-w-sm md:max-w-md">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-base sm:text-lg font-semibold text-gray-800">You're connected</h1>
-            <p className="text-xs sm:text-sm text-pink-400">{session?.username || "BulSU Wi-Fi"}</p>
+            <h1 className="text-base sm:text-lg font-semibold text-gray-900">You're connected</h1>
+            <p className="text-xs sm:text-sm text-pink-500 font-mono">{session?.username || "BulSU Wi-Fi"}</p>
           </div>
           <span className="flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
             <Wifi size={11} className="text-green-600" />
@@ -155,7 +157,7 @@ export default function SessionDashboard() {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <WifiIcon size={22} color={ringColor} />
-              <p className="text-lg font-bold text-gray-800 mt-1">{formatData(remainingMB)}</p>
+              <p className="text-lg font-bold text-gray-900 mt-1 font-display tabular-nums">{formatData(remainingMB)}</p>
               <p className="text-[11px] text-gray-400">left of {formatData(dataLimitMB)}</p>
             </div>
           </div>
@@ -166,9 +168,9 @@ export default function SessionDashboard() {
           )}
         </div>
 
-        <div className={`rounded-2xl border px-4 py-3 mb-6 text-center ${isLowTime ? "bg-red-50 border-red-200" : "bg-pink-50 border-pink-200"}`}>
-          <p className="text-xs text-gray-500 mb-1">Time remaining</p>
-          <p className={`text-3xl font-bold font-mono ${isLowTime ? "text-red-700" : "text-pink-800"}`}>
+        <div className={`rounded-2xl border px-4 py-3 mb-6 text-center ${isLowTime ? "bg-red-50 border-red-200" : "bg-pink-50/60 border-pink-100"}`}>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Time remaining</p>
+          <p className={`text-3xl font-bold font-mono tabular-nums ${isLowTime ? "text-red-700" : "text-wine-800"}`}>
             {formatTime(secondsLeft)}
           </p>
           {isLowTime && (

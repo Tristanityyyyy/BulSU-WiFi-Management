@@ -1,1 +1,80 @@
 @import "tailwindcss";
+
+/*
+  BulSU Wi-Fi design tokens.
+  Fonts are bundled (fontsource) — a captive portal loads before the
+  user has internet, so external font CDNs can never be relied on.
+*/
+@theme {
+  --font-display: "Space Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Wine — the dark chrome, derived from the pink/rose brand rather than slate */
+  --color-wine-950: #1a0d15;
+  --color-wine-900: #2a1421;
+  --color-wine-800: #40202f;
+  --color-wine-700: #5c2e42;
+
+  /* Barely-blush paper for light surfaces */
+  --color-blush-50: #fbf8f9;
+}
+
+@layer base {
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  :focus-visible {
+    outline: 2px solid #db2777;
+    outline-offset: 2px;
+  }
+}
+
+/* --- Motion primitives for overlays, modals and toasts --- */
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes pop-in {
+  0% { opacity: 0; transform: scale(0.4); }
+  70% { transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Signature: Wi-Fi broadcast ripple — slow rings radiating outward */
+@keyframes ripple {
+  0% { transform: scale(0.55); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+.animate-overlay-in { animation: overlay-in 0.18s ease-out both; }
+.animate-panel-in { animation: panel-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-toast-in { animation: toast-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-pop-in { animation: pop-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-ripple { animation: ripple 7s cubic-bezier(0.25, 0.6, 0.45, 1) infinite both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-overlay-in,
+  .animate-panel-in,
+  .animate-toast-in,
+  .animate-pop-in,
+  .animate-ripple { animation: none; }
+
+  .animate-ripple { opacity: 0.12; }
+}

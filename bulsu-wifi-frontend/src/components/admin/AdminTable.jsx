@@ -1,18 +1,41 @@
-import { Inbox } from "lucide-react";
+import { Inbox, ChevronUp, ChevronDown } from "lucide-react";
 import LoadingSpinner from "../ui/LoadingSpinner";
 
-export default function AdminTable({ columns, rows, loading, emptyText = "No records found.", emptyHint, page, totalPages, onPage }) {
+export default function AdminTable({ columns, rows, loading, emptyText = "No records found.", emptyHint, page, totalPages, onPage, colWidths, sortKey, sortDir, onSort }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" style={colWidths ? { tableLayout: "fixed" } : undefined}>
+          {colWidths && (
+            <colgroup>
+              {colWidths.map((w, i) => <col key={i} style={w ? { width: w } : undefined} />)}
+            </colgroup>
+          )}
           <thead>
-            <tr className="bg-pink-50 border-b border-pink-100">
-              {columns.map((col) => (
-                <th key={col} className="text-left px-4 py-3 text-xs font-bold text-pink-700 whitespace-nowrap">
-                  {col}
-                </th>
-              ))}
+            <tr className="bg-slate-50/70 border-b border-slate-200">
+              {columns.map((col) => {
+                const isSortable = typeof col === "object" && col !== null;
+                const key = isSortable ? col.key : col;
+                const label = isSortable ? col.label : col;
+                const active = isSortable && sortKey === key;
+                return (
+                  <th key={key} className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 whitespace-nowrap">
+                    {isSortable ? (
+                      <button type="button" onClick={() => onSort?.(key)}
+                        className={`inline-flex items-center gap-1 uppercase tracking-wide transition ${active ? "text-pink-600" : "hover:text-slate-600"}`}>
+                        {label}
+                        {active ? (
+                          sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                        ) : (
+                          <ChevronDown size={12} className="opacity-30" />
+                        )}
+                      </button>
+                    ) : (
+                      label
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -46,19 +69,19 @@ export default function AdminTable({ columns, rows, loading, emptyText = "No rec
       </div>
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-          <p className="text-xs text-slate-400">Page {page} of {totalPages}</p>
+          <p className="text-xs text-slate-400 tabular-nums">Page {page} of {totalPages}</p>
           <div className="flex gap-2">
             <button
               onClick={() => onPage(page - 1)}
               disabled={page <= 1}
-              className="px-3 py-1 rounded-xl border border-pink-200 text-xs text-slate-600 disabled:opacity-40 hover:bg-pink-50 transition"
+              className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 disabled:opacity-40 hover:bg-slate-50 hover:border-slate-300 transition"
             >
-              Prev
+              Previous
             </button>
             <button
               onClick={() => onPage(page + 1)}
               disabled={page >= totalPages}
-              className="px-3 py-1 rounded-xl border border-pink-200 text-xs text-slate-600 disabled:opacity-40 hover:bg-pink-50 transition"
+              className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 disabled:opacity-40 hover:bg-slate-50 hover:border-slate-300 transition"
             >
               Next
             </button>

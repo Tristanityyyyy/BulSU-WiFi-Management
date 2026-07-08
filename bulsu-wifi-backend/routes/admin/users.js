@@ -70,11 +70,63 @@ router.post('/parse-xlsx', express.raw({ type: 'application/octet-stream', limit
 // GET /api/admin/users/csv-template (must be before /:id routes)
 router.get('/csv-template', async (req, res) => {
   try {
-    const { courses, sections } = await fetchActiveCatalog();
+    const role = ['faculty', 'staff'].includes(req.query.role) ? req.query.role : 'student';
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'BulSU Wi-Fi Admin';
     workbook.created = new Date();
+
+    if (role !== 'student') {
+      const headers = ['student_number', 'full_name', 'birth_date'];
+      const colWidths = [16, 28, 14];
+      const roleLabel = role === 'faculty' ? 'Faculty' : 'Staff';
+
+      const sheet = workbook.addWorksheet(roleLabel, { views: [{ state: 'frozen', ySplit: 3 }] });
+      headers.forEach((_, i) => { sheet.getColumn(i + 1).width = colWidths[i]; });
+
+      sheet.mergeCells('A1:C1');
+      const title = sheet.getCell('A1');
+      title.value = `BulSU Wi-Fi — ${roleLabel} Roster Template`;
+      title.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+      title.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND_PINK } };
+      title.alignment = { vertical: 'middle' };
+      sheet.getRow(1).height = 26;
+
+      sheet.mergeCells('A2:C2');
+      const subtitle = sheet.getCell('A2');
+      subtitle.value = `Fill one row per ${roleLabel.toLowerCase()} member. Course and Section don't apply to ${roleLabel.toLowerCase()} and are left out of this template.`;
+      subtitle.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } };
+      subtitle.alignment = { wrapText: true, vertical: 'middle' };
+      sheet.getRow(2).height = 28;
+
+      const headerRow = sheet.getRow(3);
+      headers.forEach((h, i) => {
+        const cell = headerRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND_PINK } };
+        cell.alignment = { vertical: 'middle' };
+      });
+      headerRow.height = 20;
+
+      const exampleRows = [
+        ['2024F001', 'Reyes, Angela Santos', '1988-03-22'],
+        ['2024F002', 'Bautista, Mark Anthony', '1990-07-09'],
+      ];
+      exampleRows.forEach((row) => {
+        const r = sheet.addRow(row);
+        r.eachCell({ includeEmpty: true }, (cell) => { cell.font = { italic: true, color: { argb: 'FF9CA3AF' } }; });
+      });
+
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${role}_template.xlsx"`,
+      });
+      const buffer = await workbook.xlsx.writeBuffer();
+      return res.send(Buffer.from(buffer));
+    }
+
+    const { courses, sections } = await fetchActiveCatalog();
 
     const headers = ['student_number', 'full_name', 'birth_date', 'course_code', 'section_name', 'school_year', 'semester', 'enrollment_status'];
     const colWidths = [16, 28, 14, 14, 14, 14, 10, 18];
@@ -92,7 +144,7 @@ router.get('/csv-template', async (req, res) => {
 
     sheet.mergeCells('A2:H2');
     const subtitle = sheet.getCell('A2');
-    subtitle.value = 'Fill one row per student. Course and Section must exactly match the "Course & Section Reference" sheet. Leave Course/Section blank when importing Faculty or Staff.';
+    subtitle.value = 'Fill one row per student. Course and Section must exactly match the "Course & Section Reference" sheet — type them in manually.';
     subtitle.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } };
     subtitle.alignment = { wrapText: true, vertical: 'middle' };
     sheet.getRow(2).height = 28;
@@ -144,17 +196,7 @@ router.get('/csv-template', async (req, res) => {
       }
     });
 
-    const courseCodeRange = `'Course & Section Reference'!$E$2:$E$${Math.max(courses.length + 1, 2)}`;
     for (let r = 4; r <= 500; r++) {
-      sheet.getCell(`D${r}`).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [courseCodeRange],
-        showErrorMessage: true,
-        errorStyle: 'warning',
-        errorTitle: 'Unrecognized course',
-        error: 'Pick a course code from the Course & Section Reference sheet.',
-      };
       sheet.getCell(`H${r}`).dataValidation = {
         type: 'list',
         allowBlank: true,
@@ -181,12 +223,15 @@ router.get('/csv-template', async (req, res) => {
 // GET /api/admin/users
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = '', status = '', enrollment_status = '' } = req.query;
+    const { page = 1, limit = 20, search = '', status = '', enrollment_status = '', role = '', course_id = '', section_id = '' } = req.query;
     const offset = (page - 1) * limit;
     const params = [`%${search}%`, `%${search}%`];
     let where = 'WHERE (u.student_number LIKE ? OR u.full_name LIKE ?)';
     if (status) { where += ' AND u.status = ?'; params.push(status); }
     if (enrollment_status) { where += ' AND u.enrollment_status = ?'; params.push(enrollment_status); }
+    if (role) { where += ' AND u.role = ?'; params.push(role); }
+    if (course_id) { where += ' AND u.course_id = ?'; params.push(course_id); }
+    if (section_id) { where += ' AND u.section_id = ?'; params.push(section_id); }
     const [users] = await db.query(
       `SELECT u.id, u.student_number, u.full_name, u.course_id, u.section_id, u.enrollment_status, u.role, u.status
        FROM users u ${where} ORDER BY u.full_name LIMIT ? OFFSET ?`,

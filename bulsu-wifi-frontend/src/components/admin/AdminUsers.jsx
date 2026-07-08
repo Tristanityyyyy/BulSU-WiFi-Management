@@ -4,6 +4,7 @@ import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import ConfirmDialog from "./ConfirmDialog";
 import LoadingSpinner from "../ui/LoadingSpinner";
+import Modal from "../ui/Modal";
 
 const PAGE_SIZE = 20;
 
@@ -17,12 +18,14 @@ export default function AdminUsers() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterEnrollment, setFilterEnrollment] = useState("");
+  const [filterRole, setFilterRole] = useState("");
   const [confirm, setConfirm] = useState(null);
   const [modal, setModal] = useState(null);
   const [csvState, setCsvState] = useState(null);
   const [csvRows, setCsvRows] = useState([]);
   const [csvResult, setCsvResult] = useState(null);
   const [importRole, setImportRole] = useState("student");
+  const [templateRole, setTemplateRole] = useState("student");
   const [catalog, setCatalog] = useState({ courses: [], sections: [] });
   const fileRef = useRef();
 
@@ -30,7 +33,7 @@ export default function AdminUsers() {
     setLoading(true);
     try {
       const res = await adminApi.get("/admin/users", {
-        params: { page: p, limit: PAGE_SIZE, search, status: filterStatus, enrollment_status: filterEnrollment },
+        params: { page: p, limit: PAGE_SIZE, search, status: filterStatus, enrollment_status: filterEnrollment, role: filterRole },
       });
       setUsers(res.data.users);
       setTotal(res.data.total);
@@ -43,7 +46,7 @@ export default function AdminUsers() {
     adminApi.get("/admin/settings/catalog").then((res) => setCatalog(res.data));
   }, []);
 
-  useEffect(() => { fetchUsers(1); setPage(1); }, [search, filterStatus, filterEnrollment]);
+  useEffect(() => { fetchUsers(1); setPage(1); }, [search, filterStatus, filterEnrollment, filterRole]);
   useEffect(() => { fetchUsers(page); }, [page]);
 
   const doAction = async () => {
@@ -82,19 +85,17 @@ export default function AdminUsers() {
     return values;
   };
 
-  const expectedHeaders = [
-    "student_number",
-    "full_name",
-    "birth_date",
-    "course_code",
-    "section_name",
-    "school_year",
-    "semester",
-    "enrollment_status",
-  ];
+  // Course/section/school-year/semester/enrollment_status only appear in the student template —
+  // the faculty/staff template omits them, so only these three are ever required.
+  const requiredHeaders = ["student_number", "full_name", "birth_date"];
+
+  // course_code only exists in the student template; faculty/staff templates are byte-identical
+  // to each other, so this can only distinguish student vs. non-student — not faculty vs. staff.
+  const deriveDefaultRole = (header) =>
+    header.includes("course_code") ? "student" : (templateRole !== "student" ? templateRole : "faculty");
 
   const buildRowsFromTable = (header, dataRows) => {
-    const missing = expectedHeaders.filter((h) => !header.includes(h));
+    const missing = requiredHeaders.filter((h) => !header.includes(h));
     if (missing.length) {
       alert(`Template mismatch. Missing columns: ${missing.join(", ")}`);
       return null;
@@ -126,6 +127,7 @@ export default function AdminUsers() {
       const dataRows = lines.slice(1).map((line) => parseCsvLine(line));
       const rows = buildRowsFromTable(header, dataRows);
       if (!rows) return;
+      setImportRole(deriveDefaultRole(header));
       setCsvRows(rows);
       setCsvState("preview");
     };
@@ -142,6 +144,7 @@ export default function AdminUsers() {
         const header = res.data.header.map((h) => h.trim().toLowerCase());
         const rows = buildRowsFromTable(header, res.data.rows);
         if (!rows) return;
+        setImportRole(deriveDefaultRole(header));
         setCsvRows(rows);
         setCsvState("preview");
       } catch (err) {
@@ -181,12 +184,12 @@ export default function AdminUsers() {
 
   const downloadCsvTemplate = async () => {
     try {
-      const res = await adminApi.get("/admin/users/csv-template", { responseType: "blob" });
+      const res = await adminApi.get("/admin/users/csv-template", { params: { role: templateRole }, responseType: "blob" });
       const blob = new Blob([res.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "students_template.xlsx";
+      link.download = `${templateRole}_template.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -272,10 +275,18 @@ export default function AdminUsers() {
             className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow transition">
             <UserPlus size={14} /> Add User
           </button>
-          <button onClick={downloadCsvTemplate}
-            className="inline-flex items-center gap-1.5 bg-white border border-pink-200 text-pink-700 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 transition">
-            <Download size={14} /> Download Template
-          </button>
+          <div className="inline-flex items-center rounded-xl border border-pink-200 bg-white shadow overflow-hidden">
+            <select value={templateRole} onChange={(e) => setTemplateRole(e.target.value)}
+              className="text-xs font-semibold text-pink-700 pl-3 pr-1 py-2 bg-transparent focus:outline-none capitalize">
+              {["student", "faculty", "staff"].map((r) => (
+                <option key={r} value={r} className="capitalize">{r}</option>
+              ))}
+            </select>
+            <button onClick={downloadCsvTemplate}
+              className="inline-flex items-center gap-1.5 text-pink-700 text-xs font-semibold pl-2 pr-4 py-2 hover:bg-pink-50 transition border-l border-pink-100">
+              <Download size={14} /> Download Template
+            </button>
+          </div>
           <button onClick={() => fileRef.current?.click()}
             className="inline-flex items-center gap-1.5 bg-white border border-pink-200 text-pink-700 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 transition">
             <Upload size={14} /> Import File
@@ -292,6 +303,14 @@ export default function AdminUsers() {
           placeholder="Search student no., name…"
           className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white min-w-[200px]"
         />
+        <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)}
+          className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
+          <option value="">All Roles</option>
+          <option value="student">Student</option>
+          <option value="faculty">Faculty</option>
+          <option value="staff">Staff</option>
+          <option value="admin">Admin</option>
+        </select>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
           className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-pink-400">
           <option value="">All Statuses</option>
@@ -312,89 +331,94 @@ export default function AdminUsers() {
 
       {/* Import Preview */}
       {csvState === "preview" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <p className="font-semibold text-gray-800">Import Preview — {csvRows.length} rows</p>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-600">Import these as:</span>
-                <div className="inline-flex rounded-xl border border-pink-200 overflow-hidden">
-                  {["student", "faculty", "staff"].map((r) => (
-                    <button key={r} type="button" onClick={() => setImportRole(r)}
-                      className={`px-3 py-1 text-xs font-medium capitalize transition ${importRole === r ? "bg-pink-600 text-white" : "bg-white text-gray-600 hover:bg-pink-50"}`}>
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            {importRole === "student" && invalidCsvRowCount > 0 && (
-              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">
-                {invalidCsvRowCount} row(s) below reference a course or section that isn't registered in the system (highlighted in red). The import will be rejected until these are fixed.
-              </p>
-            )}
-            {importRole !== "student" && (
-              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 mb-3">
-                Course/Section are ignored for {importRole} imports.
-              </p>
-            )}
-            <div className="overflow-auto flex-1 border border-pink-100 rounded-xl mb-4">
-              <table className="w-full text-xs">
-                <thead className="bg-pink-50">
-                  <tr>{["Student No.", "Name", "Birth Date", "Course Code", "Section Name", "School Year", "Semester", "Enrollment"].map((h) => (
-                    <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold">{h}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {csvRows.slice(0, 50).map((r, i) => {
-                    const invalid = importRole === "student" && !isImportRowValid(r);
-                    return (
-                      <tr key={i} className={`border-b border-pink-50 ${invalid ? "bg-red-50" : ""}`}>
-                        <td className="px-3 py-1.5 font-mono">{r.student_number}</td>
-                        <td className="px-3 py-1.5">{r.full_name}</td>
-                        <td className="px-3 py-1.5">{r.birth_date}</td>
-                        <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.course_code}</td>
-                        <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.section_name}</td>
-                        <td className="px-3 py-1.5">{r.school_year}</td>
-                        <td className="px-3 py-1.5">{r.semester}</td>
-                        <td className="px-3 py-1.5">{r.enrollment_status}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+        <Modal
+          onClose={resetCsv}
+          size="xl"
+          title="Import Preview"
+          subtitle={`${csvRows.length} row${csvRows.length === 1 ? "" : "s"} detected — review before importing.`}
+          icon={<Upload size={17} />}
+          footer={
             <div className="flex gap-3">
-              <button onClick={resetCsv} className="flex-1 border border-pink-200 text-gray-600 rounded-xl py-2 text-sm hover:bg-gray-50">Cancel</button>
+              <button onClick={resetCsv} className="flex-1 border border-slate-200 text-gray-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 transition">Cancel</button>
               <button onClick={confirmCsvImport} disabled={importRole === "student" && invalidCsvRowCount > 0}
-                className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md hover:from-pink-700 hover:to-rose-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 hover:from-pink-700 hover:to-rose-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition">
                 Import {csvRows.length} rows
               </button>
             </div>
+          }
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs font-medium text-gray-600">Import these as:</span>
+            <div className="inline-flex rounded-xl border border-pink-200 overflow-hidden">
+              {["student", "faculty", "staff"].map((r) => (
+                <button key={r} type="button" onClick={() => setImportRole(r)}
+                  className={`px-3 py-1 text-xs font-medium capitalize transition ${importRole === r ? "bg-pink-600 text-white" : "bg-white text-gray-600 hover:bg-pink-50"}`}>
+                  {r}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+          {importRole === "student" && invalidCsvRowCount > 0 && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">
+              {invalidCsvRowCount} row(s) below reference a course or section that isn't registered in the system (highlighted in red). The import will be rejected until these are fixed.
+            </p>
+          )}
+          {importRole !== "student" && (
+            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 mb-3">
+              Course/Section are ignored for {importRole} imports.
+            </p>
+          )}
+          <div className="overflow-auto max-h-[45vh] border border-pink-100 rounded-xl">
+            <table className="w-full text-xs">
+              <thead className="bg-pink-50 sticky top-0">
+                <tr>{["Student No.", "Name", "Birth Date", "Course Code", "Section Name", "School Year", "Semester", "Enrollment"].map((h) => (
+                  <th key={h} className="px-3 py-2 text-left text-gray-600 font-semibold whitespace-nowrap">{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {csvRows.slice(0, 50).map((r, i) => {
+                  const invalid = importRole === "student" && !isImportRowValid(r);
+                  return (
+                    <tr key={i} className={`border-b border-pink-50 ${invalid ? "bg-red-50" : ""}`}>
+                      <td className="px-3 py-1.5 font-mono">{r.student_number}</td>
+                      <td className="px-3 py-1.5">{r.full_name}</td>
+                      <td className="px-3 py-1.5">{r.birth_date}</td>
+                      <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.course_code}</td>
+                      <td className={`px-3 py-1.5 ${invalid ? "text-red-700 font-semibold" : ""}`}>{r.section_name}</td>
+                      <td className="px-3 py-1.5">{r.school_year}</td>
+                      <td className="px-3 py-1.5">{r.semester}</td>
+                      <td className="px-3 py-1.5">{r.enrollment_status}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Modal>
       )}
 
       {csvState === "importing" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl p-8 flex flex-col items-center gap-4">
+        <Modal showClose={false}>
+          <div className="flex flex-col items-center gap-4 py-2">
             <LoadingSpinner size={36} className="text-pink-400" />
-            <p className="text-sm text-gray-600">Importing…</p>
+            <p className="text-sm text-gray-600">Importing users…</p>
           </div>
-        </div>
+        </Modal>
       )}
 
       {csvState === "done" && csvResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md text-center max-h-[80vh] flex flex-col">
+        <Modal size="md" onClose={() => { resetCsv(); fetchUsers(1); }} showClose={false}>
+          <div className="text-center flex flex-col max-h-full">
             {csvResult.rejected ? (
               <>
                 <div className="flex justify-center mb-3">
-                  <AlertTriangle size={44} className="text-red-500" strokeWidth={1.5} />
+                  <span className="w-14 h-14 rounded-full bg-red-50 border border-red-100 flex items-center justify-center animate-pop-in">
+                    <AlertTriangle size={26} className="text-red-500" strokeWidth={1.8} />
+                  </span>
                 </div>
-                <p className="font-semibold text-gray-800 mb-1">Import Rejected</p>
+                <p className="text-base font-semibold text-gray-900 mb-1">Import Rejected</p>
                 <p className="text-sm text-red-600 mb-3">{csvResult.message}</p>
-                <div className="overflow-auto flex-1 text-left border border-red-100 rounded-xl divide-y divide-red-50">
+                <div className="overflow-auto max-h-[35vh] text-left border border-red-100 rounded-xl divide-y divide-red-50">
                   {csvResult.invalid_rows.map((r, i) => (
                     <div key={i} className="px-3 py-2 text-xs">
                       <span className="font-mono text-gray-500">Row {r.row}</span>
@@ -407,22 +431,26 @@ export default function AdminUsers() {
             ) : (
               <>
                 <div className="flex justify-center mb-3">
-                  {csvResult.failed === 0
-                    ? <CheckCircle2 size={44} className="text-green-600" strokeWidth={1.5} />
-                    : <AlertTriangle size={44} className="text-orange-500" strokeWidth={1.5} />}
+                  <span className={`w-14 h-14 rounded-full border flex items-center justify-center animate-pop-in ${
+                    csvResult.failed === 0 ? "bg-green-50 border-green-100" : "bg-orange-50 border-orange-100"
+                  }`}>
+                    {csvResult.failed === 0
+                      ? <CheckCircle2 size={26} className="text-green-600" strokeWidth={1.8} />
+                      : <AlertTriangle size={26} className="text-orange-500" strokeWidth={1.8} />}
+                  </span>
                 </div>
-                <p className="font-semibold text-gray-800 mb-1">Import Complete</p>
+                <p className="text-base font-semibold text-gray-900 mb-1">Import Complete</p>
                 <p className="text-sm text-green-700">{csvResult.success} rows imported successfully.</p>
                 {csvResult.failed > 0 && <p className="text-sm text-red-600">{csvResult.failed} rows failed.</p>}
                 {csvResult.message && <p className="text-sm text-red-600">{csvResult.message}</p>}
               </>
             )}
             <button onClick={() => { resetCsv(); fetchUsers(1); }}
-              className="mt-4 w-full bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md shrink-0">
+              className="mt-5 w-full bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 shrink-0 transition">
               Done
             </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {modal && <UserFormModal user={modal === "add" ? null : modal} courses={catalog.courses} sections={catalog.sections} onClose={() => setModal(null)} onSaved={() => { setModal(null); fetchUsers(page); }} />}
@@ -500,11 +528,15 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
-        <p className="font-semibold text-gray-800 mb-4">{user ? "Edit User" : "Add User"}</p>
-        {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">{error}</p>}
-        <form onSubmit={handleSubmit} className="space-y-3">
+    <Modal
+      onClose={onClose}
+      size="sm"
+      title={user ? "Edit User" : "Add User"}
+      subtitle={user ? "Update this account's details." : "Create a new account for a student, faculty or staff member."}
+      icon={user ? <Pencil size={16} /> : <UserPlus size={17} />}
+    >
+      {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3">{error}</p>}
+      <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-1">Student Number</label>
             <input type="text" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })}
@@ -582,14 +614,13 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
           )}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 border border-pink-200 text-gray-600 rounded-xl py-2 text-sm hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={onClose} className="flex-1 border border-slate-200 text-gray-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 transition">Cancel</button>
             <button type="submit" disabled={saving || (!user && !derivedPassword)}
-              className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2 text-sm font-semibold shadow-md disabled:opacity-60">
+              className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 disabled:opacity-60 disabled:shadow-none transition">
               {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

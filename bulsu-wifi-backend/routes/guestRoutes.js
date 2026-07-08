@@ -9,7 +9,7 @@ router.get("/token-status", async (req, res) => {
   if (!token) return res.status(400).json({ message: "Token is required." });
 
   const [[guest]] = await db.query(
-    "SELECT status, expires_at FROM guests WHERE qr_code = ? LIMIT 1",
+    "SELECT status, starts_at, expires_at FROM guests WHERE token = ? LIMIT 1",
     [token]
   );
 
@@ -17,6 +17,7 @@ router.get("/token-status", async (req, res) => {
 
   if (guest.status === "used") return res.json({ status: "used" });
   if (new Date(guest.expires_at) < new Date()) return res.json({ status: "expired" });
+  if (new Date(guest.starts_at) > new Date()) return res.json({ status: "not_started", startsAt: guest.starts_at });
 
   res.json({ status: "active" });
 });
@@ -28,17 +29,20 @@ router.post("/verify", async (req, res) => {
   if (!qrCode || !guestName) return res.status(400).json({ message: "qrCode and guestName are required." });
 
   const [[guest]] = await db.query(
-    "SELECT * FROM guests WHERE qr_code = ? LIMIT 1",
+    "SELECT * FROM guests WHERE token = ? LIMIT 1",
     [qrCode]
   );
 
   if (!guest) return res.status(404).json({ message: "Invalid QR code." });
   if (guest.status === "used") return res.status(400).json({ message: "This QR code has already been used." });
   if (new Date(guest.expires_at) < new Date()) return res.status(400).json({ message: "This QR code has expired." });
+  if (new Date(guest.starts_at) > new Date())
+    return res.status(400).json({ message: `This QR code is not active yet. It becomes available at ${new Date(guest.starts_at).toLocaleString()}.` });
 
+  await db.query("UPDATE guests SET status = 'used' WHERE id = ?", [guest.id]);
   await db.query(
-    "UPDATE guests SET guest_name = ?, status = 'used' WHERE id = ?",
-    [guestName, guest.id]
+    "INSERT INTO guest_sessions (guest_id, guest_name, mac_address, ip_address, login_time, status) VALUES (?,?,NULL,?,NOW(),'active')",
+    [guest.id, guestName, req.ip]
   );
 
   res.json({
