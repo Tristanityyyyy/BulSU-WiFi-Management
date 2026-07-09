@@ -3,3 +3,7 @@ node_modules/
 dist/
 build/
 *.log
+*.md
+*.txt
+!README.md
+docs/
