@@ -1,21 +1,93 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Siren, PowerOff, X } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import ConfirmDialog from "./ConfirmDialog";
 import Modal from "../ui/Modal";
+import Toast from "../ui/Toast";
 
 const PAGE_SIZE = 20;
 const TARGET_TYPES = [
-  { value: "user", label: "User" },
+  { value: "student", label: "Student" },
+  { value: "faculty", label: "Faculty" },
+  { value: "staff", label: "Staff" },
   { value: "guest", label: "Guest" },
   { value: "section", label: "Section" },
   { value: "course", label: "Course" },
-  { value: "role", label: "Role" },
 ];
-const ROLES = ["student", "faculty", "staff"];
+// student/faculty/staff all pick individual people the same way (search + checkbox list against
+// /admin/users, scoped by role) — they share one picker instance instead of three copies.
+const PERSON_TARGET_TYPES = ["student", "faculty", "staff"];
+const PERSON_LABELS = { student: "Students", faculty: "Faculty", staff: "Staff" };
 
-const emptyForm = () => ({ targetType: "user", selectedTarget: null, reason: "" });
+// Shared UI for every multi-select target picker (user/guest/section/course): a filter box,
+// removable chips for what's selected, and a checkbox list of matches. Keeping this in one place
+// means all four pickers behave identically instead of each reimplementing the same pattern.
+function CheckboxTargetPicker({
+  label, filterValue, onFilterChange, placeholder,
+  options, getId, getLabel, getSublabel,
+  selectedIds, onToggle, chips, onRemoveChip,
+  showSelectAll, allVisibleSelected, onToggleAll,
+  emptyText, requireFilter, totalCount,
+}) {
+  const selectedCount = chips ? chips.length : selectedIds.length;
+  const isTruncated = typeof totalCount === "number" && totalCount > options.length;
+  return (
+    <div>
+      <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
+        {label} {selectedCount > 0 && <span className="text-gray-400 dark:text-gray-500 font-normal">({selectedCount} selected)</span>}
+      </label>
+      <input value={filterValue}
+        onChange={(e) => onFilterChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
+
+      {chips && chips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {chips.map((c) => (
+            <span key={getId(c)} className="inline-flex items-center gap-1 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-full pl-2.5 pr-1 py-0.5 text-xs">
+              {getLabel(c)}
+              <button type="button" onClick={() => onRemoveChip(c)}
+                aria-label={`Remove ${getLabel(c)}`}
+                className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-100 transition">
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {showSelectAll && (
+        <label className="flex items-center gap-2 px-1 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 cursor-pointer">
+          <input type="checkbox" checked={allVisibleSelected} onChange={onToggleAll} className="accent-red-600" />
+          Select all {filterValue ? "matching " : ""}({options.length}{isTruncated ? " shown" : ""})
+        </label>
+      )}
+
+      {(!requireFilter || filterValue.trim()) && (
+        <div className="mt-2 border border-red-100 dark:border-red-900/60 rounded-xl divide-y divide-red-50 dark:divide-wine-800/70 max-h-40 overflow-y-auto">
+          {options.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">{emptyText}</p>
+          ) : options.map((opt) => (
+            <label key={getId(opt)} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer">
+              <input type="checkbox"
+                checked={selectedIds.includes(getId(opt))}
+                onChange={() => onToggle(opt)}
+                className="accent-red-600" />
+              <span className="text-gray-800 dark:text-gray-100">{getLabel(opt)}</span>
+              {getSublabel && <span className="text-gray-400 dark:text-gray-500">({getSublabel(opt)})</span>}
+            </label>
+          ))}
+        </div>
+      )}
+      {isTruncated && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+          Showing {options.length} of {totalCount} — refine your search to narrow this down.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function AdminEmergency() {
   const [priorities, setPriorities] = useState([]);
@@ -32,17 +104,22 @@ export default function AdminEmergency() {
 
   // Activate modal
   const [activateModal, setActivateModal] = useState(false);
-  const [targetType, setTargetType] = useState("user");
-  const [selectedTarget, setSelectedTarget] = useState(null);
+  const [targetType, setTargetType] = useState("student");
   const [reason, setReason] = useState("");
   const [activating, setActivating] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [formError, setFormError] = useState("");
+  const [toast, setToast] = useState("");
 
   // User picker — multi-select via checkboxes, searched against the users API
   const [userSearch, setUserSearch] = useState("");
   const [userResults, setUserResults] = useState([]);
+  const [userResultsTotal, setUserResultsTotal] = useState(0);
   const [selectedUsers, setSelectedUsers] = useState([]);
+
+  // Bumped whenever the modal is closed/reset, so a preview request that resolves after the
+  // admin already backed out doesn't pop a confirm dialog for a selection they abandoned.
+  const requestGen = useRef(0);
 
   // Section/Course picker — multi-select via checkboxes, filtered client-side
   const [catalog, setCatalog] = useState({ courses: [], sections: [] });
@@ -74,14 +151,16 @@ export default function AdminEmergency() {
 
   useEffect(() => {
     adminApi.get("/admin/settings/catalog").then((res) => setCatalog(res.data)).catch(() => {});
-    adminApi.get("/admin/sessions/guests", { params: { status: "active", limit: 50 } }).then((res) => setGuestsList(res.data.sessions)).catch(() => {});
+    // 200 comfortably covers a mass-connect event; the truncation hint below still guards
+    // against any larger crowd instead of silently dropping people from "Select all".
+    adminApi.get("/admin/sessions/guests", { params: { status: "active", limit: 200 } }).then((res) => setGuestsList(res.data.sessions)).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (targetType !== "user" || !userSearch.trim()) { setUserResults([]); return; }
-    adminApi.get("/admin/users", { params: { search: userSearch, limit: 8 } })
-      .then((res) => setUserResults(res.data.users))
-      .catch(() => setUserResults([]));
+    if (!PERSON_TARGET_TYPES.includes(targetType) || !userSearch.trim()) { setUserResults([]); setUserResultsTotal(0); return; }
+    adminApi.get("/admin/users", { params: { search: userSearch, role: targetType, limit: 8 } })
+      .then((res) => { setUserResults(res.data.users); setUserResultsTotal(res.data.total ?? res.data.users.length); })
+      .catch(() => { setUserResults([]); setUserResultsTotal(0); });
   }, [userSearch, targetType]);
 
   const handleSort = (key) => {
@@ -90,24 +169,28 @@ export default function AdminEmergency() {
   };
 
   const closeModal = () => {
+    // Invalidates any in-flight preview call so it can't pop a confirm dialog for a selection
+    // the admin already backed out of, and immediately un-sticks the Activate button instead of
+    // waiting for that stale request to settle.
+    requestGen.current += 1;
     setActivateModal(false);
-    const f = emptyForm();
-    setTargetType(f.targetType);
-    setSelectedTarget(f.selectedTarget);
-    setReason(f.reason);
+    setTargetType("student");
+    setReason("");
     setUserSearch("");
     setUserResults([]);
+    setUserResultsTotal(0);
     setSelectedUsers([]);
     setCatalogFilter("");
     setSelectedCatalog([]);
     setGuestFilter("");
     setSelectedGuestIds([]);
     setFormError("");
+    setPreviewLoading(false);
+    setConfirm(null);
   };
 
   const handleTargetTypeChange = (t) => {
     setTargetType(t);
-    setSelectedTarget(null);
     setUserSearch("");
     setUserResults([]);
     setSelectedUsers([]);
@@ -143,12 +226,14 @@ export default function AdminEmergency() {
 
   // guestsList holds currently-active guest_sessions (fetched with status=active), so every
   // entry here is a guest who's actually connected right now — the only ones worth prioritizing.
-  const guestOptions = guestsList
-    .filter((g) => g.guest_name && g.guest_name.toLowerCase().includes(guestFilter.toLowerCase()))
-    .slice(0, 20);
+  // Kept unsliced (guestMatches) alongside the display-capped guestOptions so the picker can show
+  // a truncation hint instead of silently hiding matches beyond the cap.
+  const guestMatches = guestsList
+    .filter((g) => g.guest_name && g.guest_name.toLowerCase().includes(guestFilter.toLowerCase()));
+  const guestOptions = guestMatches.slice(0, 20);
 
   const courseLabelById = Object.fromEntries((catalog.courses || []).map((c) => [c.id, c.code || c.name]));
-  const catalogOptions = (targetType === "section" ? catalog.sections : targetType === "course" ? catalog.courses : [])
+  const catalogMatches = (targetType === "section" ? catalog.sections : targetType === "course" ? catalog.courses : [])
     .filter((item) => {
       const text = targetType === "section" ? item.name : `${item.code || ""} ${item.name || ""}`;
       return text.toLowerCase().includes(catalogFilter.toLowerCase());
@@ -158,24 +243,34 @@ export default function AdminEmergency() {
       label: targetType === "section"
         ? `${item.name}${courseLabelById[item.course_id] ? ` (${courseLabelById[item.course_id]})` : ""}`
         : (item.code || item.name),
-    }))
-    .slice(0, 20);
+    }));
+  const catalogOptions = catalogMatches.slice(0, 20);
+
+  // Target selection, as (isEmpty, payload-shaped-id) — same shape the backend expects for
+  // both the preview and create endpoints, so there's exactly one place that knows the mapping.
+  const getTargetId = () => {
+    if (targetType === "guest") return selectedGuestIds;
+    if (PERSON_TARGET_TYPES.includes(targetType)) return selectedUsers.map((u) => u.id);
+    return selectedCatalog.map((c) => c.id); // section/course
+  };
+  const hasSelection = () => {
+    if (targetType === "guest") return selectedGuestIds.length > 0;
+    if (PERSON_TARGET_TYPES.includes(targetType)) return selectedUsers.length > 0;
+    return selectedCatalog.length > 0; // section/course
+  };
 
   const doActivate = async () => {
     setActivating(true);
     setFormError("");
     try {
-      const payload = targetType === "guest"
-        ? { reason, target_type: "guest", target_id: selectedGuestIds }
-        : targetType === "user"
-        ? { reason, target_type: "user", target_id: selectedUsers.map((u) => u.id) }
-        : targetType === "section" || targetType === "course"
-        ? { reason, target_type: targetType, target_id: selectedCatalog.map((c) => c.id) }
-        : { reason, target_type: targetType, target_id: selectedTarget.id };
-      await adminApi.post("/admin/emergency", payload);
+      const res = await adminApi.post("/admin/emergency", { reason: reason.trim(), target_type: targetType, target_id: getTargetId() });
       closeModal();
       fetchPriorities(1);
       setPage(1);
+      const { activated, already_active, already_active_names } = res.data;
+      setToast(activated > 0
+        ? `Activated priority for ${activated} ${activated === 1 ? "target" : "targets"}.${already_active ? ` ${already_active_names} already had priority and ${already_active === 1 ? "was" : "were"} skipped.` : ""}`
+        : `${already_active_names} already ${already_active === 1 ? "has" : "have"} an active priority.`);
     } catch (err) {
       setFormError(err.response?.data?.message || "Failed to activate.");
     } finally {
@@ -183,54 +278,37 @@ export default function AdminEmergency() {
     }
   };
 
+  // Single user/guest selections are unambiguous (exactly one person, no resolution needed) and
+  // activate immediately. Everything else — multi-select or a criterion (section/course/role) that
+  // resolves to an unknown number of people — gets one batched preview call and a single confirm
+  // step, instead of the old per-target-type branches with their own preview/skip rules.
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError("");
-    if (targetType === "guest") {
-      if (selectedGuestIds.length === 0) { setFormError("Please select at least one guest."); return; }
-      if (selectedGuestIds.length === 1) { await doActivate(); return; }
-      setConfirm({ action: "activate", label: `This will activate emergency priority for ${selectedGuestIds.length} guests. Continue?` });
-      return;
-    }
-    if (targetType === "user") {
-      if (selectedUsers.length === 0) { setFormError("Please select at least one user."); return; }
-      if (selectedUsers.length === 1) { await doActivate(); return; }
-      setConfirm({ action: "activate", label: `This will activate emergency priority for ${selectedUsers.length} users. Continue?` });
-      return;
-    }
-    if (targetType === "section" || targetType === "course") {
-      if (selectedCatalog.length === 0) { setFormError(`Please select at least one ${targetType}.`); return; }
-      setPreviewLoading(true);
-      try {
-        // The users API filters by a single section/course id, so preview one request per
-        // selection and sum — a user belongs to exactly one of each, so no double counting.
-        const key = targetType === "course" ? "course_id" : "section_id";
-        const totals = await Promise.all(selectedCatalog.map((c) =>
-          adminApi.get("/admin/users", { params: { limit: 1, [key]: c.id } }).then((r) => r.data.total)
-        ));
-        const count = totals.reduce((a, b) => a + b, 0);
-        if (count === 0) { setFormError("No users match this target."); return; }
-        setConfirm({ action: "activate", label: `This will activate emergency priority for ${count} user(s) — ${selectedCatalog.map((c) => c.label).join(", ")}. Continue?` });
-      } catch {
-        setFormError("Failed to preview target count.");
-      } finally {
-        setPreviewLoading(false);
-      }
-      return;
-    }
+    if (!hasSelection()) { setFormError(`Please select at least one ${targetType}.`); return; }
+    if (!reason.trim()) { setFormError("Please describe the reason for this activation."); return; }
 
-    if (!selectedTarget) { setFormError("Please select a target."); return; }
+    const skipPreview = (PERSON_TARGET_TYPES.includes(targetType) && selectedUsers.length === 1)
+      || (targetType === "guest" && selectedGuestIds.length === 1);
+    if (skipPreview) { await doActivate(); return; }
 
+    const gen = requestGen.current;
     setPreviewLoading(true);
     try {
-      const res = await adminApi.get("/admin/users", { params: { limit: 1, role: selectedTarget.id } });
-      const count = res.data.total;
-      if (count === 0) { setFormError("No users match this target."); return; }
-      setConfirm({ action: "activate", label: `This will activate emergency priority for ${count} user(s) — ${selectedTarget.label}. Continue?` });
-    } catch {
-      setFormError("Failed to preview target count.");
+      const res = await adminApi.post("/admin/emergency/preview", { target_type: targetType, target_id: getTargetId() });
+      if (requestGen.current !== gen) return; // modal was closed/reset while this was in flight
+      const { count, already_active, already_active_names, target_label } = res.data;
+      if (count === 0) {
+        setFormError(already_active > 0 ? `Already has an active priority: ${already_active_names}.` : "No users match this target.");
+        return;
+      }
+      const skipNote = already_active > 0 ? ` (${already_active} already active — ${already_active_names} — will be skipped)` : "";
+      setConfirm({ action: "activate", label: `This will activate emergency priority for ${count} ${count === 1 ? "user" : "users"} — ${target_label}${skipNote}. Continue?` });
+    } catch (err) {
+      if (requestGen.current !== gen) return;
+      setFormError(err.response?.data?.message || "Failed to preview target.");
     } finally {
-      setPreviewLoading(false);
+      if (requestGen.current === gen) setPreviewLoading(false);
     }
   };
 
@@ -289,8 +367,8 @@ export default function AdminEmergency() {
         <div>
           <p className="text-sm font-semibold text-red-700 dark:text-red-300">Emergency Priority Mode</p>
           <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
-            Activating priority grants elevated bandwidth and session persistence to a user, guest, section, course, or role.
-            Use only for critical situations. All activations are logged.
+            Activating priority grants elevated bandwidth and session persistence to a student, faculty, staff, guest,
+            section, or course. Use only for critical situations. All activations are logged.
           </p>
         </div>
       </div>
@@ -354,133 +432,61 @@ export default function AdminEmergency() {
                 </div>
               </div>
 
-              {targetType === "user" && (
-                <div>
-                  <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
-                    Select Users {selectedUsers.length > 0 && <span className="text-gray-400 dark:text-gray-500 font-normal">({selectedUsers.length} selected)</span>}
-                  </label>
-                  <input value={userSearch}
-                    onChange={(e) => setUserSearch(e.target.value)}
-                    placeholder="Search name or student number…"
-                    className="w-full border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
-                  {selectedUsers.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {selectedUsers.map((u) => (
-                        <span key={u.id} className="inline-flex items-center gap-1 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-full pl-2.5 pr-1 py-0.5 text-xs">
-                          {u.full_name}
-                          <button type="button" onClick={() => toggleUserSelection(u)}
-                            aria-label={`Remove ${u.full_name}`}
-                            className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-100 transition">
-                            <X size={11} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {userSearch.trim() && (
-                    <div className="mt-2 border border-red-100 dark:border-red-900/60 rounded-xl divide-y divide-red-50 dark:divide-wine-800/70 max-h-40 overflow-y-auto">
-                      {userResults.length === 0 ? (
-                        <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No users match.</p>
-                      ) : userResults.map((u) => (
-                        <label key={u.id} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer">
-                          <input type="checkbox"
-                            checked={selectedUsers.some((s) => s.id === u.id)}
-                            onChange={() => toggleUserSelection(u)}
-                            className="accent-red-600" />
-                          <span className="text-gray-800 dark:text-gray-100">{u.full_name}</span>
-                          <span className="text-gray-400 dark:text-gray-500">({u.student_number})</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              {PERSON_TARGET_TYPES.includes(targetType) && (
+                <CheckboxTargetPicker
+                  label={`Select ${PERSON_LABELS[targetType]}`}
+                  filterValue={userSearch}
+                  onFilterChange={setUserSearch}
+                  placeholder="Search name or ID number…"
+                  options={userResults}
+                  getId={(u) => u.id}
+                  getLabel={(u) => u.full_name}
+                  getSublabel={(u) => u.student_number}
+                  selectedIds={selectedUsers.map((u) => u.id)}
+                  onToggle={toggleUserSelection}
+                  chips={selectedUsers}
+                  onRemoveChip={toggleUserSelection}
+                  emptyText={`No ${PERSON_LABELS[targetType].toLowerCase()} match.`}
+                  requireFilter
+                  totalCount={userResultsTotal}
+                />
               )}
 
               {targetType === "guest" && (
-                <div>
-                  <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
-                    Select Guests {selectedGuestIds.length > 0 && <span className="text-gray-400 dark:text-gray-500 font-normal">({selectedGuestIds.length} selected)</span>}
-                  </label>
-                  <input value={guestFilter}
-                    onChange={(e) => setGuestFilter(e.target.value)}
-                    placeholder="Search guest name…"
-                    className="w-full border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
-                  <label className="flex items-center gap-2 px-1 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 cursor-pointer">
-                    <input type="checkbox"
-                      checked={guestOptions.length > 0 && guestOptions.every((g) => selectedGuestIds.includes(g.guest_id))}
-                      onChange={toggleSelectAllGuests}
-                      className="accent-red-600" />
-                    Select all {guestFilter ? "matching " : ""}({guestOptions.length})
-                  </label>
-                  <div className="border border-red-100 dark:border-red-900/60 rounded-xl divide-y divide-red-50 dark:divide-wine-800/70 max-h-44 overflow-y-auto">
-                    {guestOptions.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No connected guests match.</p>
-                    ) : guestOptions.map((g) => (
-                      <label key={g.id} className="flex items-center gap-2 px-3 py-2 text-xs text-gray-800 dark:text-gray-100 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer">
-                        <input type="checkbox"
-                          checked={selectedGuestIds.includes(g.guest_id)}
-                          onChange={() => toggleGuestSelection(g.guest_id)}
-                          className="accent-red-600" />
-                        {g.guest_name}
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <CheckboxTargetPicker
+                  label="Select Guests"
+                  filterValue={guestFilter}
+                  onFilterChange={setGuestFilter}
+                  placeholder="Search guest name…"
+                  options={guestOptions}
+                  getId={(g) => g.guest_id}
+                  getLabel={(g) => g.guest_name}
+                  selectedIds={selectedGuestIds}
+                  onToggle={(g) => toggleGuestSelection(g.guest_id)}
+                  showSelectAll
+                  allVisibleSelected={guestOptions.length > 0 && guestOptions.every((g) => selectedGuestIds.includes(g.guest_id))}
+                  onToggleAll={toggleSelectAllGuests}
+                  emptyText="No connected guests match."
+                  totalCount={guestMatches.length}
+                />
               )}
 
               {(targetType === "section" || targetType === "course") && (
-                <div>
-                  <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
-                    {targetType === "section" ? "Select Sections" : "Select Courses"}
-                    {selectedCatalog.length > 0 && <span className="text-gray-400 dark:text-gray-500 font-normal"> ({selectedCatalog.length} selected)</span>}
-                  </label>
-                  <input value={catalogFilter}
-                    onChange={(e) => setCatalogFilter(e.target.value)}
-                    placeholder={targetType === "section" ? "Search section name…" : "Search course code or name…"}
-                    className="w-full border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
-                  {selectedCatalog.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {selectedCatalog.map((c) => (
-                        <span key={c.id} className="inline-flex items-center gap-1 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 rounded-full pl-2.5 pr-1 py-0.5 text-xs">
-                          {c.label}
-                          <button type="button" onClick={() => toggleCatalogSelection(c)}
-                            aria-label={`Remove ${c.label}`}
-                            className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-100 transition">
-                            <X size={11} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="mt-2 border border-red-100 dark:border-red-900/60 rounded-xl divide-y divide-red-50 dark:divide-wine-800/70 max-h-40 overflow-y-auto">
-                    {catalogOptions.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No matches.</p>
-                    ) : catalogOptions.map((opt) => (
-                      <label key={opt.id} className="flex items-center gap-2 px-3 py-2 text-xs text-gray-800 dark:text-gray-100 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer">
-                        <input type="checkbox"
-                          checked={selectedCatalog.some((c) => c.id === opt.id)}
-                          onChange={() => toggleCatalogSelection(opt)}
-                          className="accent-red-600" />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {targetType === "role" && (
-                <div>
-                  <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Role</label>
-                  <div className="inline-flex rounded-xl border border-red-200 dark:border-red-900 overflow-hidden">
-                    {ROLES.map((r) => (
-                      <button key={r} type="button"
-                        onClick={() => setSelectedTarget({ id: r, label: `Role: ${r[0].toUpperCase() + r.slice(1)}` })}
-                        className={`px-3 py-1.5 text-xs font-medium capitalize transition ${selectedTarget?.id === r ? "bg-red-600 text-white" : "bg-white dark:bg-wine-900 text-gray-600 dark:text-gray-300 hover:bg-red-50 dark:hover:bg-red-950/30"}`}>
-                        {r}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <CheckboxTargetPicker
+                  label={targetType === "section" ? "Select Sections" : "Select Courses"}
+                  filterValue={catalogFilter}
+                  onFilterChange={setCatalogFilter}
+                  placeholder={targetType === "section" ? "Search section name…" : "Search course code or name…"}
+                  options={catalogOptions}
+                  getId={(c) => c.id}
+                  getLabel={(c) => c.label}
+                  selectedIds={selectedCatalog.map((c) => c.id)}
+                  onToggle={toggleCatalogSelection}
+                  chips={selectedCatalog}
+                  onRemoveChip={toggleCatalogSelection}
+                  emptyText="No matches."
+                  totalCount={catalogMatches.length}
+                />
               )}
 
               <div>
@@ -495,11 +501,7 @@ export default function AdminEmergency() {
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={closeModal}
                   className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
-                <button type="submit" disabled={activating || previewLoading || (
-                  targetType === "guest" ? selectedGuestIds.length === 0
-                  : targetType === "user" ? selectedUsers.length === 0
-                  : targetType === "section" || targetType === "course" ? selectedCatalog.length === 0
-                  : !selectedTarget)}
+                <button type="submit" disabled={activating || previewLoading || !hasSelection()}
                   className="flex-1 bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-red-200 dark:shadow-none disabled:opacity-60 disabled:shadow-none transition">
                   {activating ? "Activating…" : previewLoading ? "Checking…" : "Activate"}
                 </button>
@@ -509,6 +511,7 @@ export default function AdminEmergency() {
       )}
 
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doConfirmedAction} onCancel={() => setConfirm(null)} />}
+      {toast && <Toast message={toast} onDismiss={() => setToast("")} />}
     </div>
   );
 }

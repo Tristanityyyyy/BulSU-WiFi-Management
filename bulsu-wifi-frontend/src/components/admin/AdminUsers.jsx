@@ -478,20 +478,20 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
   const isStudentRole = form.role === "student";
   const sectionOptions = (sections || []).filter((section) => String(section.course_id) === String(form.course_id));
 
-  // Picking a course implies (and locks) the Student role; clearing the course frees the Role
-  // dropdown back up, but "Student" stays unpickable there until a course is chosen again.
   const handleCourseChange = (courseId) => {
-    setForm({
-      ...form,
-      course_id: courseId,
-      section_id: "",
-      role: courseId ? "student" : "",
-      enrollment_status: courseId ? (form.enrollment_status || "enrolled") : "",
-    });
+    setForm({ ...form, course_id: courseId, section_id: "" });
   };
 
+  // Role is picked first. Course/Section only apply to students, so switching to faculty/staff
+  // locks (and clears) them; switching to student unlocks them for picking.
   const handleRoleChange = (role) => {
-    setForm({ ...form, role, enrollment_status: "" });
+    setForm({
+      ...form,
+      role,
+      course_id: role === "student" ? form.course_id : "",
+      section_id: role === "student" ? form.section_id : "",
+      enrollment_status: role === "student" ? (form.enrollment_status || "enrolled") : "",
+    });
   };
 
   // Derive password: LastName (before the comma) + YYYY + MM + DD
@@ -554,9 +554,23 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
           {!isAdminAccount && (
             <>
               <div>
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Course</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Role</label>
+                <select value={form.role} onChange={(e) => handleRoleChange(e.target.value)} required
+                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 capitalize">
+                  <option value="" disabled>Select role</option>
+                  {USER_ROLES.map((role) => (
+                    <option key={role} value={role} className="capitalize">
+                      {role[0].toUpperCase() + role.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">
+                  Course {!isStudentRole && <span className="font-normal text-gray-400 dark:text-gray-500">(students only)</span>}
+                </label>
                 <select value={form.course_id} onChange={(e) => handleCourseChange(e.target.value)}
-                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
+                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:bg-gray-100 dark:disabled:bg-wine-800 disabled:cursor-not-allowed" disabled={!isStudentRole}>
                   <option value="">Select course</option>
                   {(courses || []).map((course) => (
                     <option key={course.id} value={course.id}>{course.code || course.name}</option>
@@ -566,22 +580,10 @@ function UserFormModal({ user, courses, sections, onClose, onSaved }) {
               <div>
                 <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Section</label>
                 <select value={form.section_id} onChange={(e) => setForm({ ...form, section_id: e.target.value })}
-                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:bg-gray-100 disabled:cursor-not-allowed" required={!!form.course_id} disabled={!form.course_id}>
+                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:bg-gray-100 dark:disabled:bg-wine-800 disabled:cursor-not-allowed" required={isStudentRole && !!form.course_id} disabled={!isStudentRole || !form.course_id}>
                   <option value="">Select section</option>
                   {sectionOptions.map((section) => (
                     <option key={section.id} value={section.id}>{section.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Role</label>
-                <select value={form.role} onChange={(e) => handleRoleChange(e.target.value)} required
-                  className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 capitalize disabled:bg-gray-100 disabled:cursor-not-allowed" disabled={!!form.course_id}>
-                  <option value="" disabled>Select role</option>
-                  {USER_ROLES.map((role) => (
-                    <option key={role} value={role} disabled={role === "student" && !form.course_id} className="capitalize">
-                      {role[0].toUpperCase() + role.slice(1)}
-                    </option>
                   ))}
                 </select>
               </div>

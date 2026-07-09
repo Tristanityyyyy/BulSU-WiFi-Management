@@ -39,6 +39,12 @@
   .dark input::placeholder, .dark textarea::placeholder {
     color: #6b7280;
   }
+  /* color-scheme alone isn't reliably enough to theme a <select>'s native open dropdown list —
+     some browsers keep it on a light popup, which combined with the light text color above made
+     open dropdowns unreadable. Forcing the background explicitly guarantees contrast everywhere. */
+  .dark select, .dark option {
+    background-color: var(--color-wine-900);
+  }
 
   h1, h2, h3 {
     font-family: var(--font-display);

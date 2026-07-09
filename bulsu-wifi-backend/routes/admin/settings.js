@@ -39,12 +39,13 @@ router.get('/catalog', async (req, res) => {
 router.post('/catalog/courses', async (req, res) => {
   try {
     const code = req.body.code?.trim();
+    const name = req.body.name?.trim() || code;
     if (!code) return res.status(400).json({ message: 'Course code is required.' });
     const [result] = await db.query(
       'INSERT INTO courses (code, name, status) VALUES (?, ?, ?)',
-      [code, code, 'active']
+      [code, name, 'active']
     );
-    const course = { id: result.insertId, code, name: code, status: 'active' };
+    const course = { id: result.insertId, code, name, status: 'active' };
     res.status(201).json({ course });
   } catch (err) {
     res.status(500).json({ message: 'Failed to create course.' });
@@ -55,10 +56,11 @@ router.post('/catalog/courses', async (req, res) => {
 router.put('/catalog/courses/:id', async (req, res) => {
   try {
     const code = req.body.code?.trim();
+    const name = req.body.name?.trim() || code;
     if (!code) return res.status(400).json({ message: 'Course code is required.' });
     await db.query(
       'UPDATE courses SET code = ?, name = ? WHERE id = ?',
-      [code, code, Number(req.params.id)]
+      [code, name, Number(req.params.id)]
     );
     res.json({ ok: true });
   } catch (err) {
