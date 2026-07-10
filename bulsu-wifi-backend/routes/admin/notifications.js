@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const db = require('../../db');
+const { logAudit, ACTIONS } = require('../../utils/auditLog');
 
 // GET /api/admin/notifications
 router.get('/', async (req, res) => {
@@ -48,6 +49,27 @@ router.post('/send', async (req, res) => {
     const values = userIds.map((id) => [id, 'general', message, 0, new Date()]);
     if (values.length) {
       await db.query('INSERT INTO notifications (user_id, type, message, is_read, created_at) VALUES ?', [values]);
+
+      let targetName = 'All Students';
+      if (target === 'user') {
+        const [[u]] = await db.query('SELECT full_name FROM users WHERE id = ?', [user_id]);
+        targetName = u?.full_name || 'Unknown user';
+      } else if (target === 'section') {
+        const [[s]] = await db.query(
+          `SELECT sec.name AS section_name, c.code AS course_code
+           FROM sections sec LEFT JOIN courses c ON c.id = sec.course_id WHERE sec.id = ?`,
+          [section_id]
+        );
+        targetName = s ? `${s.course_code || ''} ${s.section_name || ''}`.trim() : 'Unknown section';
+      }
+
+      await logAudit(req, {
+        action: ACTIONS.CREATED,
+        target_type: target,
+        target_name: targetName,
+        description: `Sent notification to ${targetName} (${values.length} recipient(s))`,
+        metadata: { target, course_id, message },
+      });
     }
     res.json({ sent: values.length });
   } catch (err) {

@@ -1,13 +1,13 @@
 import { Fragment, useEffect, useState } from "react";
-import { Save, Plus, Pencil, Trash2, Gauge, Database, Timer, GraduationCap, Users2, X, SunMoon, Sun, Moon, Monitor } from "lucide-react";
+import { Save, Gauge, Database, Timer, Smartphone, GraduationCap, Users2, X, SunMoon, Sun, Moon, Monitor, UserCog } from "lucide-react";
 import adminApi from "./adminApi";
 import { useTheme } from "../../theme";
 import LoadingSpinner from "../ui/LoadingSpinner";
 import Toast from "../ui/Toast";
-import ConfirmDialog from "./ConfirmDialog";
-
-const ROLES = ["student", "faculty", "staff", "guest"];
-const ROLE_LABELS = { student: "Student", faculty: "Faculty", staff: "Staff", guest: "Guest" };
+import NetworkSettingsSection from "./settings/NetworkSettingsSection";
+import CatalogSettingsSection from "./settings/CatalogSettingsSection";
+import AccountSettingsSection from "./settings/AccountSettingsSection";
+import SectionCard from "./settings/SectionCard";
 
 const DEFAULTS = {
   bandwidth_upload_student: 2,   bandwidth_download_student: 5,
@@ -18,6 +18,9 @@ const DEFAULTS = {
   data_cap_gb_staff: 0,          data_cap_gb_guest: 0.5,
   session_timeout_student: 120,  session_timeout_faculty: 240,
   session_timeout_staff: 240,    session_timeout_guest: 60,
+  one_device_policy: "true",
+  max_devices_student: 2,        max_devices_faculty: 3,
+  max_devices_staff: 3,          max_devices_admin: 5,
 };
 
 const NAV_GROUPS = [
@@ -27,6 +30,7 @@ const NAV_GROUPS = [
       { key: "bandwidth", label: "Bandwidth Limits", icon: Gauge },
       { key: "datacap", label: "Data Caps", icon: Database },
       { key: "timeout", label: "Session Timeout", icon: Timer },
+      { key: "devicepolicy", label: "Device Policy", icon: Smartphone },
     ],
   },
   {
@@ -42,6 +46,12 @@ const NAV_GROUPS = [
       { key: "display", label: "Display", icon: SunMoon },
     ],
   },
+  {
+    label: "Account",
+    items: [
+      { key: "account", label: "My Account", icon: UserCog },
+    ],
+  },
 ];
 
 const THEME_OPTIONS = [
@@ -50,72 +60,7 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor, desc: "Follows your device" },
 ];
 
-const NETWORK_SECTIONS = ["bandwidth", "datacap", "timeout"];
-
-function SectionCard({ icon, title, hint, children }) {
-  return (
-    <div className="bg-white dark:bg-wine-900 rounded-2xl shadow-sm border border-slate-200 dark:border-wine-800 p-5 h-full">
-      <div className="flex items-start gap-3 mb-4">
-        <span className="w-9 h-9 rounded-xl bg-pink-50 dark:bg-pink-950/40 border border-pink-100 dark:border-pink-900/60 text-pink-600 dark:text-pink-400 flex items-center justify-center shrink-0">
-          {icon}
-        </span>
-        <div className="pt-0.5">
-          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-tight">{title}</p>
-          {hint && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{hint}</p>}
-        </div>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function RoleTable({ icon, title, hint, settings, onChange, columns }) {
-  return (
-    <SectionCard icon={icon} title={title} hint={hint}>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 dark:border-wine-800/70">
-              <th className="text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide pb-2 w-24">Role</th>
-              {columns.map((col) => (
-                <th key={col.key} className="text-left text-[11px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide pb-2 px-2">
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50 dark:divide-wine-800/60">
-            {ROLES.map((role) => (
-              <tr key={role} className="hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition-colors">
-                <td className="py-2.5 pr-2">
-                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{ROLE_LABELS[role]}</span>
-                </td>
-                {columns.map((col) => {
-                  const key = `${col.key}_${role}`;
-                  return (
-                    <td key={key} className="py-2.5 px-2">
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min={0}
-                          step={col.step || 1}
-                          value={settings[key] ?? ""}
-                          onChange={(e) => onChange(key, e.target.value)}
-                          className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent w-20 transition"
-                        />
-                        <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{col.unit}</span>
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </SectionCard>
-  );
-}
+const NETWORK_SECTIONS = ["bandwidth", "datacap", "timeout", "devicepolicy"];
 
 export default function AdminSettings() {
   const { theme, setTheme } = useTheme();
@@ -127,12 +72,6 @@ export default function AdminSettings() {
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [activeSection, setActiveSection] = useState("bandwidth");
-  const [courseForm, setCourseForm] = useState({ code: "", name: "" });
-  const [editingCourseId, setEditingCourseId] = useState(null);
-  const [sectionForm, setSectionForm] = useState({ name: "", course_id: "" });
-  const [editingSectionId, setEditingSectionId] = useState(null);
-  const [sectionCourseFilter, setSectionCourseFilter] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -167,70 +106,6 @@ export default function AdminSettings() {
     }
   };
 
-  const refreshCatalog = async () => {
-    const res = await adminApi.get("/admin/settings/catalog");
-    setCatalog(res.data || { courses: [], sections: [] });
-  };
-
-  const cancelCourseEdit = () => { setEditingCourseId(null); setCourseForm({ code: "", name: "" }); };
-  const cancelSectionEdit = () => { setEditingSectionId(null); setSectionForm({ name: "", course_id: "" }); };
-
-  const handleCourseSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const payload = { code: courseForm.code.trim(), name: courseForm.name.trim() };
-      if (editingCourseId) {
-        await adminApi.put(`/admin/settings/catalog/courses/${editingCourseId}`, payload);
-      } else {
-        await adminApi.post("/admin/settings/catalog/courses", payload);
-      }
-      cancelCourseEdit();
-      await refreshCatalog();
-    } catch (err) {
-      setError(err.response?.data?.message || "Unable to save course.");
-    }
-  };
-
-  const handleCourseDelete = async (id) => {
-    try {
-      await adminApi.delete(`/admin/settings/catalog/courses/${id}`);
-      await refreshCatalog();
-    } catch (err) {
-      setError(err.response?.data?.message || "Unable to delete course.");
-    }
-  };
-
-  const handleSectionSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      if (editingSectionId) {
-        await adminApi.put(`/admin/settings/catalog/sections/${editingSectionId}`, { name: sectionForm.name.trim(), course_id: sectionForm.course_id });
-      } else {
-        await adminApi.post("/admin/settings/catalog/sections", { name: sectionForm.name.trim(), course_id: sectionForm.course_id });
-      }
-      cancelSectionEdit();
-      await refreshCatalog();
-    } catch (err) {
-      setError(err.response?.data?.message || "Unable to save section.");
-    }
-  };
-
-  const handleSectionDelete = async (id) => {
-    try {
-      await adminApi.delete(`/admin/settings/catalog/sections/${id}`);
-      await refreshCatalog();
-    } catch (err) {
-      setError(err.response?.data?.message || "Unable to delete section.");
-    }
-  };
-
-  const doConfirmedDelete = async () => {
-    const { type, id } = confirmDelete;
-    setConfirmDelete(null);
-    if (type === "course") await handleCourseDelete(id);
-    if (type === "section") await handleSectionDelete(id);
-  };
-
   if (loading) {
     return (
       <div className="flex justify-center py-24">
@@ -240,9 +115,7 @@ export default function AdminSettings() {
   }
 
   const isNetworkSection = NETWORK_SECTIONS.includes(activeSection);
-  const visibleSections = (catalog.sections || []).filter(
-    (s) => !sectionCourseFilter || String(s.course_id) === sectionCourseFilter
-  );
+  const isCatalogSection = activeSection === "courses" || activeSection === "sections";
 
   return (
     <div className="space-y-4">
@@ -300,45 +173,7 @@ export default function AdminSettings() {
         {/* Active section content */}
         <div className="flex-1 min-w-0 w-full">
           {isNetworkSection && (
-            <form id="settings-form" onSubmit={handleSave}>
-              {activeSection === "bandwidth" && (
-                <RoleTable
-                  icon={<Gauge size={16} />}
-                  title="Bandwidth Limits"
-                  hint="Maximum upload and download speed per connected device."
-                  settings={settings}
-                  onChange={handleChange}
-                  columns={[
-                    { key: "bandwidth_upload", label: "Upload", unit: "Mbps" },
-                    { key: "bandwidth_download", label: "Download", unit: "Mbps" },
-                  ]}
-                />
-              )}
-              {activeSection === "datacap" && (
-                <RoleTable
-                  icon={<Database size={16} />}
-                  title="Data Cap per Session"
-                  hint="Data allowance per session — 0 means unlimited."
-                  settings={settings}
-                  onChange={handleChange}
-                  columns={[
-                    { key: "data_cap_gb", label: "Data Cap", unit: "GB", step: 0.1 },
-                  ]}
-                />
-              )}
-              {activeSection === "timeout" && (
-                <RoleTable
-                  icon={<Timer size={16} />}
-                  title="Session Timeout"
-                  hint="How long a session stays active before re-login."
-                  settings={settings}
-                  onChange={handleChange}
-                  columns={[
-                    { key: "session_timeout", label: "Timeout", unit: "min" },
-                  ]}
-                />
-              )}
-            </form>
+            <NetworkSettingsSection activeSection={activeSection} settings={settings} onChange={handleChange} onSubmit={handleSave} />
           )}
 
           {activeSection === "display" && (
@@ -363,208 +198,15 @@ export default function AdminSettings() {
             </SectionCard>
           )}
 
-          {activeSection === "courses" && (
-            <SectionCard icon={<GraduationCap size={16} />} title="Courses" hint="Course codes and names available for student accounts.">
-              {!editingCourseId && (
-                <form onSubmit={handleCourseSubmit} className="flex flex-wrap gap-2">
-                  <input
-                    value={courseForm.code}
-                    onChange={(e) => setCourseForm((prev) => ({ ...prev, code: e.target.value }))}
-                    placeholder="Course code (e.g. BSIT)"
-                    className="w-32 shrink-0 border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                  />
-                  <input
-                    value={courseForm.name}
-                    onChange={(e) => setCourseForm((prev) => ({ ...prev, name: e.target.value }))}
-                    placeholder="Course name (e.g. Bachelor of Science in Information Technology)"
-                    className="flex-1 min-w-[12rem] border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                  />
-                  <button type="submit" className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl px-3.5 py-2 text-xs font-semibold shadow-sm transition shrink-0">
-                    <Plus size={13} />
-                    Add
-                  </button>
-                </form>
-              )}
-              <div className="mt-3 space-y-1.5">
-                {(catalog.courses || []).length === 0 && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">No courses yet — add your first course above.</p>
-                )}
-                {(catalog.courses || []).map((course) => (
-                  editingCourseId === course.id ? (
-                    <form key={course.id} onSubmit={handleCourseSubmit}
-                      className="flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
-                      <input
-                        autoFocus
-                        value={courseForm.code}
-                        onChange={(e) => setCourseForm((prev) => ({ ...prev, code: e.target.value }))}
-                        placeholder="Course code"
-                        className="w-28 shrink-0 border border-slate-200 dark:border-wine-800 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                      />
-                      <input
-                        value={courseForm.name}
-                        onChange={(e) => setCourseForm((prev) => ({ ...prev, name: e.target.value }))}
-                        placeholder="Course name"
-                        className="flex-1 min-w-[10rem] border border-slate-200 dark:border-wine-800 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                      />
-                      <div className="flex gap-1 shrink-0">
-                        <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save course">
-                          <Pencil size={13} />
-                        </button>
-                        <button type="button" onClick={cancelCourseEdit}
-                          className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
-                          <X size={13} />
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div key={course.id}
-                      className="group flex items-center justify-between rounded-xl px-3 py-2 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
-                      <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                        <span className="font-medium">{course.code}</span>
-                        {course.name && course.name !== course.code && (
-                          <span className="text-gray-400 dark:text-gray-500 font-normal"> — {course.name}</span>
-                        )}
-                      </span>
-                      <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-                        <button type="button" onClick={() => { setEditingCourseId(course.id); setCourseForm({ code: course.code || "", name: course.name === course.code ? "" : (course.name || "") }); }}
-                          className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit course">
-                          <Pencil size={13} />
-                        </button>
-                        <button type="button" onClick={() => setConfirmDelete({ type: "course", id: course.id, label: `Delete ${course.code || course.name} and all of its sections? This cannot be undone.` })}
-                          className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete course">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                ))}
-              </div>
-            </SectionCard>
-          )}
+          {activeSection === "account" && <AccountSettingsSection />}
 
-          {activeSection === "sections" && (
-            <SectionCard icon={<Users2 size={16} />} title="Sections" hint="Class sections grouped under a course.">
-              {!editingSectionId && (
-                <form onSubmit={handleSectionSubmit} className="flex gap-2">
-                  <input
-                    value={sectionForm.name}
-                    onChange={(e) => setSectionForm((prev) => ({ ...prev, name: e.target.value }))}
-                    placeholder="Section name"
-                    className="flex-1 min-w-0 border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                  />
-                  <select
-                    value={sectionForm.course_id}
-                    onChange={(e) => setSectionForm((prev) => ({ ...prev, course_id: e.target.value }))}
-                    className="w-28 shrink-0 border border-slate-200 dark:border-wine-800 rounded-xl px-2 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                  >
-                    <option value="">Course</option>
-                    {(catalog.courses || []).map((course) => (
-                      <option key={course.id} value={course.id}>{course.code || course.name}</option>
-                    ))}
-                  </select>
-                  <button type="submit" className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl px-3.5 py-2 text-xs font-semibold shadow-sm transition shrink-0">
-                    <Plus size={13} />
-                    Add
-                  </button>
-                </form>
-              )}
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <p className="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
-                  {visibleSections.length} section{visibleSections.length === 1 ? "" : "s"}
-                </p>
-                <select
-                  value={sectionCourseFilter}
-                  onChange={(e) => setSectionCourseFilter(e.target.value)}
-                  className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-wine-900 text-gray-600 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                >
-                  <option value="">All courses</option>
-                  {(catalog.courses || []).map((course) => (
-                    <option key={course.id} value={course.id}>{course.code || course.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="mt-2 space-y-1 max-h-[420px] overflow-y-auto pr-1">
-                {visibleSections.length === 0 && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">
-                    {sectionCourseFilter ? "No sections under this course yet." : "No sections yet — add one and assign it to a course."}
-                  </p>
-                )}
-                {visibleSections.map((section) => {
-                  const course = (catalog.courses || []).find((item) => item.id === section.course_id);
-                  if (editingSectionId === section.id) {
-                    return (
-                      <form key={section.id} onSubmit={handleSectionSubmit}
-                        className="flex items-center gap-2 rounded-xl px-3 py-1.5 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
-                        <input
-                          autoFocus
-                          value={sectionForm.name}
-                          onChange={(e) => setSectionForm((prev) => ({ ...prev, name: e.target.value }))}
-                          placeholder="Section name"
-                          className="flex-1 min-w-0 border border-slate-200 dark:border-wine-800 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                        />
-                        <select
-                          value={sectionForm.course_id}
-                          onChange={(e) => setSectionForm((prev) => ({ ...prev, course_id: e.target.value }))}
-                          className="w-28 shrink-0 border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                        >
-                          <option value="">Course</option>
-                          {(catalog.courses || []).map((c) => (
-                            <option key={c.id} value={c.id}>{c.code || c.name}</option>
-                          ))}
-                        </select>
-                        <div className="flex gap-1 shrink-0">
-                          <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save section">
-                            <Pencil size={13} />
-                          </button>
-                          <button type="button" onClick={cancelSectionEdit}
-                            className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
-                            <X size={13} />
-                          </button>
-                        </div>
-                      </form>
-                    );
-                  }
-                  return (
-                    <div key={section.id}
-                      className="group flex items-center justify-between rounded-xl px-3 py-1.5 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{section.name}</p>
-                        <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-wine-800 text-slate-500 dark:text-gray-400 shrink-0">
-                          {course ? (course.code || course.name) : "Unassigned"}
-                        </span>
-                        {course?.name && course.name !== course.code && (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 truncate" title={course.name}>{course.name}</span>
-                        )}
-                      </div>
-                      <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-                        <button type="button" onClick={() => { setEditingSectionId(section.id); setSectionForm({ name: section.name, course_id: String(section.course_id) }); }}
-                          className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit section">
-                          <Pencil size={13} />
-                        </button>
-                        <button type="button" onClick={() => setConfirmDelete({ type: "section", id: section.id, label: `Delete section ${section.name}? This cannot be undone.` })}
-                          className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete section">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </SectionCard>
+          {isCatalogSection && (
+            <CatalogSettingsSection activeSection={activeSection} catalog={catalog} onCatalogChange={setCatalog} onError={setError} />
           )}
         </div>
       </div>
 
       {saved && <Toast message="Settings saved successfully." onDismiss={() => setSaved(false)} />}
-      {confirmDelete && (
-        <ConfirmDialog
-          title="Delete from catalog"
-          message={confirmDelete.label}
-          confirmLabel="Delete"
-          onConfirm={doConfirmedDelete}
-          onCancel={() => setConfirmDelete(null)}
-        />
-      )}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 const router = require('express').Router();
 const db = require('../../db');
-const ExcelJS = require('exceljs');
+const { buildBrandedWorkbook, sendWorkbook } = require('../../utils/xlsxBrand');
+const { forceDisconnectSession, forceDisconnectGuestSession } = require('../../utils/sessions');
 
-const BRAND_PINK = 'FFDB2777';
 const STATUS_COLORS = {
   active: 'FF16A34A',
   ended: 'FF6B7280',
@@ -28,66 +28,6 @@ const describeFilters = (query, extra = {}) => {
   return parts.length ? `Filtered by ${parts.join(', ')}.` : 'No filters applied.';
 };
 
-async function buildSessionWorkbook({ title, subtitle, sheetName, columns, rows }) {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'BulSU Wi-Fi Admin';
-  workbook.created = new Date();
-
-  const sheet = workbook.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 3 }] });
-  columns.forEach((col, i) => { sheet.getColumn(i + 1).width = col.width; });
-
-  const lastCol = String.fromCharCode(64 + columns.length);
-
-  sheet.mergeCells(`A1:${lastCol}1`);
-  const titleCell = sheet.getCell('A1');
-  titleCell.value = title;
-  titleCell.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
-  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND_PINK } };
-  titleCell.alignment = { vertical: 'middle' };
-  sheet.getRow(1).height = 26;
-
-  sheet.mergeCells(`A2:${lastCol}2`);
-  const subtitleCell = sheet.getCell('A2');
-  subtitleCell.value = subtitle;
-  subtitleCell.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } };
-  subtitleCell.alignment = { vertical: 'middle' };
-  sheet.getRow(2).height = 22;
-
-  const headerRow = sheet.getRow(3);
-  columns.forEach((col, i) => {
-    const cell = headerRow.getCell(i + 1);
-    cell.value = col.header;
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND_PINK } };
-    cell.alignment = { vertical: 'middle' };
-  });
-  headerRow.height = 20;
-
-  columns.forEach((col, i) => {
-    if (col.dateFormat) sheet.getColumn(i + 1).numFmt = 'yyyy-mm-dd hh:mm';
-  });
-
-  const statusColIndex = columns.findIndex((c) => c.key === 'status');
-  rows.forEach((row) => {
-    const r = sheet.addRow(columns.map((col) => col.value(row)));
-    r.eachCell({ includeEmpty: true }, (cell) => { cell.alignment = { vertical: 'middle' }; });
-    if (statusColIndex !== -1) {
-      r.getCell(statusColIndex + 1).font = { bold: true, color: { argb: STATUS_COLORS[row.status] || 'FF6B7280' } };
-    }
-  });
-
-  return workbook;
-}
-
-async function sendWorkbook(res, workbook, filename) {
-  res.set({
-    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': `attachment; filename="${filename}"`,
-  });
-  const buffer = await workbook.xlsx.writeBuffer();
-  res.send(Buffer.from(buffer));
-}
-
 function buildDateFilter(query, alias, userAlias = null) {
   const { date_from, date_to, status = '', logout_reason = '', role = '' } = query;
   const params = [];
@@ -107,15 +47,16 @@ router.get('/', async (req, res) => {
     const offset = (page - 1) * limit;
     const { where, params } = buildDateFilter(req.query, 's', 'u');
     const [sessions] = await db.query(`
-      SELECT s.id, u.full_name, u.student_number, u.role, s.mac_address, s.ip_address,
+      SELECT s.id, COALESCE(u.full_name, '(Deleted User)') AS full_name,
+             COALESCE(u.student_number, '—') AS student_number, u.role, s.mac_address, s.ip_address,
              s.login_time, s.logout_time, s.status, s.logout_reason,
              TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes
       FROM sessions s
-      JOIN users u ON s.user_id = u.id
+      LEFT JOIN users u ON s.user_id = u.id
       ${where} ORDER BY s.login_time DESC LIMIT ? OFFSET ?
     `, [...params, Number(limit), Number(offset)]);
     const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM sessions s JOIN users u ON s.user_id = u.id ${where}`, params
+      `SELECT COUNT(*) AS total FROM sessions s LEFT JOIN users u ON s.user_id = u.id ${where}`, params
     );
     res.json({ sessions, total });
   } catch (err) {
@@ -128,11 +69,12 @@ router.get('/export', async (req, res) => {
   try {
     const { where, params } = buildDateFilter(req.query, 's', 'u');
     const [rows] = await db.query(`
-      SELECT u.student_number, u.full_name, u.role, s.mac_address, s.ip_address,
+      SELECT COALESCE(u.student_number, '—') AS student_number, COALESCE(u.full_name, '(Deleted User)') AS full_name,
+             u.role, s.mac_address, s.ip_address,
              s.login_time, s.logout_time, s.status, s.logout_reason,
              TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes
       FROM sessions s
-      JOIN users u ON s.user_id = u.id
+      LEFT JOIN users u ON s.user_id = u.id
       ${where} ORDER BY s.login_time DESC
     `, params);
 
@@ -151,12 +93,13 @@ router.get('/export', async (req, res) => {
       { header: 'Logout Reason', width: 18, value: (r) => (r.logout_reason ? humanize(r.logout_reason) : '—') },
     ];
 
-    const workbook = await buildSessionWorkbook({
+    const workbook = await buildBrandedWorkbook({
       title: `BulSU Wi-Fi — ${roleLabel} Session Log`,
       subtitle: `Generated ${new Date().toLocaleString()}. ${describeFilters(req.query)}`,
       sheetName: 'Sessions',
       columns,
       rows,
+      statusColors: STATUS_COLORS,
     });
     await sendWorkbook(res, workbook, `${role || 'all'}-sessions-${Date.now()}.xlsx`);
   } catch (err) {
@@ -206,16 +149,39 @@ router.get('/guests/export', async (req, res) => {
       { header: 'Status', key: 'status', width: 16, value: (r) => humanize(r.status) },
     ];
 
-    const workbook = await buildSessionWorkbook({
+    const workbook = await buildBrandedWorkbook({
       title: 'BulSU Wi-Fi — Guest Session Log',
       subtitle: `Generated ${new Date().toLocaleString()}. ${describeFilters(req.query)}`,
       sheetName: 'Guest Sessions',
       columns,
       rows,
+      statusColors: STATUS_COLORS,
     });
     await sendWorkbook(res, workbook, `guest-sessions-${Date.now()}.xlsx`);
   } catch (err) {
     res.status(500).json({ message: 'Failed to export guest sessions.' });
+  }
+});
+
+// PATCH /api/admin/sessions/:id/disconnect
+router.patch('/:id/disconnect', async (req, res) => {
+  try {
+    const session = await forceDisconnectSession(req, req.params.id);
+    if (!session) return res.status(404).json({ message: 'Session is not active.' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to disconnect session.' });
+  }
+});
+
+// PATCH /api/admin/sessions/guests/:id/disconnect
+router.patch('/guests/:id/disconnect', async (req, res) => {
+  try {
+    const session = await forceDisconnectGuestSession(req, req.params.id);
+    if (!session) return res.status(404).json({ message: 'Guest session is not active.' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to disconnect guest session.' });
   }
 });
 

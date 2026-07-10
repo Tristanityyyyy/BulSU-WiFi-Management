@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Radio, KeyRound,
-  Siren, MessageSquare, Bell, Settings, LogOut, Sun, Moon,
+  Siren, MessageSquare, Bell, Settings, LogOut, Sun, Moon, ScrollText,
 } from "lucide-react";
 import { useTheme } from "../../theme";
 
@@ -33,6 +33,7 @@ const NAV_GROUPS = [
     label: "System",
     items: [
       { to: "/admin/settings", label: "Settings", Icon: Settings },
+      { to: "/admin/audit-log", label: "Audit Log", Icon: ScrollText },
     ],
   },
 ];

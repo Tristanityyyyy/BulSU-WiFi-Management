@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../../db');
 const crypto = require('crypto');
+const { logAudit, ACTIONS } = require('../../utils/auditLog');
 
 // student/faculty/staff are all "pick individual people" targets, resolved identically apart
 // from which role they're scoped to — kept as one list instead of three near-duplicate branches.
@@ -246,6 +247,14 @@ router.post('/', async (req, res) => {
       [values]
     );
 
+    await logAudit(req, {
+      action: ACTIONS.CREATED,
+      target_type: 'emergency_priority',
+      target_name: targetLabel,
+      description: `Activated emergency priority for ${targetLabel} (${toActivate.length} affected) — reason: ${reason}`,
+      metadata: { target_type, count: toActivate.length },
+    });
+
     res.status(201).json({
       activated: toActivate.length,
       already_active: alreadyActiveIds.size,
@@ -262,10 +271,17 @@ router.post('/', async (req, res) => {
 // PATCH /api/admin/emergency/:id/deactivate — single, ungrouped row
 router.patch('/:id/deactivate', async (req, res) => {
   try {
+    const [[row]] = await db.query('SELECT target_label FROM emergency_priority WHERE id=?', [req.params.id]);
     await db.query(
       'UPDATE emergency_priority SET status="ended", deactivated_at=NOW() WHERE id=?',
       [req.params.id]
     );
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'emergency_priority',
+      target_name: row?.target_label,
+      description: `Deactivated emergency priority for ${row?.target_label}`,
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('PATCH /admin/emergency/:id/deactivate failed:', err);
@@ -276,10 +292,21 @@ router.patch('/:id/deactivate', async (req, res) => {
 // PATCH /api/admin/emergency/batch/:batchId/deactivate — whole group at once
 router.patch('/batch/:batchId/deactivate', async (req, res) => {
   try {
-    await db.query(
+    const [[row]] = await db.query(
+      'SELECT target_label FROM emergency_priority WHERE batch_id=? LIMIT 1',
+      [req.params.batchId]
+    );
+    const [result] = await db.query(
       'UPDATE emergency_priority SET status="ended", deactivated_at=NOW() WHERE batch_id=? AND status="active"',
       [req.params.batchId]
     );
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'emergency_priority',
+      target_name: row?.target_label,
+      description: `Deactivated emergency priority for ${row?.target_label} (${result.affectedRows} affected)`,
+      metadata: { affected: result.affectedRows },
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('PATCH /admin/emergency/batch/:batchId/deactivate failed:', err);

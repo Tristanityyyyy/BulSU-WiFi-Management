@@ -1,5 +1,8 @@
 const router = require('express').Router();
 const db = require('../../db');
+const bcrypt = require('bcrypt');
+const { logAudit, ACTIONS } = require('../../utils/auditLog');
+const { verifyOwnPassword } = require('../../utils/verifyOwnPassword');
 
 const getCatalogSettings = async () => {
   const [courses] = await db.query(
@@ -46,6 +49,12 @@ router.post('/catalog/courses', async (req, res) => {
       [code, name, 'active']
     );
     const course = { id: result.insertId, code, name, status: 'active' };
+    await logAudit(req, {
+      action: ACTIONS.CREATED,
+      target_type: 'course',
+      target_name: code,
+      description: `Added course ${code} (${name})`,
+    });
     res.status(201).json({ course });
   } catch (err) {
     res.status(500).json({ message: 'Failed to create course.' });
@@ -62,6 +71,12 @@ router.put('/catalog/courses/:id', async (req, res) => {
       'UPDATE courses SET code = ?, name = ? WHERE id = ?',
       [code, name, Number(req.params.id)]
     );
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'course',
+      target_name: code,
+      description: `Updated course to ${code} (${name})`,
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update course.' });
@@ -71,8 +86,16 @@ router.put('/catalog/courses/:id', async (req, res) => {
 // DELETE /api/admin/settings/catalog/courses/:id
 router.delete('/catalog/courses/:id', async (req, res) => {
   try {
+    const [[course]] = await db.query('SELECT code, name FROM courses WHERE id = ?', [Number(req.params.id)]);
     await db.query('DELETE FROM sections WHERE course_id = ?', [Number(req.params.id)]);
     await db.query('DELETE FROM courses WHERE id = ?', [Number(req.params.id)]);
+    const label = course?.code || course?.name || 'Unknown course';
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'course',
+      target_name: label,
+      description: `Deleted course ${label} and its sections`,
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete course.' });
@@ -91,6 +114,14 @@ router.post('/catalog/sections', async (req, res) => {
       [course_id, name, 'active']
     );
     const section = { id: result.insertId, course_id, name, status: 'active' };
+    const [[course]] = await db.query('SELECT code, name AS course_name FROM courses WHERE id = ?', [course_id]);
+    const courseLabel = course?.code || course?.course_name || 'Unknown course';
+    await logAudit(req, {
+      action: ACTIONS.CREATED,
+      target_type: 'section',
+      target_name: name,
+      description: `Added section ${name} under course ${courseLabel}`,
+    });
     res.status(201).json({ section });
   } catch (err) {
     res.status(500).json({ message: 'Failed to create section.' });
@@ -108,6 +139,12 @@ router.put('/catalog/sections/:id', async (req, res) => {
       'UPDATE sections SET course_id = ?, name = ? WHERE id = ?',
       [course_id, name, Number(req.params.id)]
     );
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'section',
+      target_name: name,
+      description: `Updated section ${name}`,
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update section.' });
@@ -117,7 +154,15 @@ router.put('/catalog/sections/:id', async (req, res) => {
 // DELETE /api/admin/settings/catalog/sections/:id
 router.delete('/catalog/sections/:id', async (req, res) => {
   try {
+    const [[section]] = await db.query('SELECT name FROM sections WHERE id = ?', [Number(req.params.id)]);
     await db.query('DELETE FROM sections WHERE id = ?', [Number(req.params.id)]);
+    const label = section?.name || 'Unknown section';
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'section',
+      target_name: label,
+      description: `Deleted section ${label}`,
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete section.' });
@@ -136,9 +181,72 @@ router.put('/', async (req, res) => {
         [key, value]
       );
     }
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'settings',
+      target_name: 'Network Settings',
+      description: `Updated settings: ${entries.map(([k]) => k).join(', ')}`,
+      metadata: Object.fromEntries(entries),
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to save settings.' });
+  }
+});
+
+// GET /api/admin/settings/account — the logged-in admin's own name and username
+router.get('/account', async (req, res) => {
+  try {
+    const [[admin]] = await db.query('SELECT full_name, student_number FROM users WHERE id = ?', [req.user.id]);
+    if (!admin) return res.status(404).json({ message: 'Account not found.' });
+    res.json({ full_name: admin.full_name, student_number: admin.student_number });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch account.' });
+  }
+});
+
+// PUT /api/admin/settings/account — the logged-in admin updates their own name, username, and/or password.
+// Always requires the current password, even when only the name/username is changing.
+router.put('/account', async (req, res) => {
+  try {
+    const full_name = req.body.full_name?.trim();
+    const student_number = req.body.student_number?.trim();
+    const { current_password, new_password } = req.body;
+    if (!full_name) return res.status(400).json({ message: 'Name is required.' });
+    if (!student_number) return res.status(400).json({ message: 'Username is required.' });
+    if (!current_password) return res.status(400).json({ message: 'Current password is required.' });
+
+    const [[admin]] = await db.query('SELECT full_name, student_number FROM users WHERE id = ?', [req.user.id]);
+    if (!(await verifyOwnPassword(req, current_password))) return res.status(401).json({ message: 'Current password is incorrect.' });
+
+    const usernameChanged = student_number !== admin.student_number;
+    const nameChanged = full_name !== admin.full_name;
+    if (usernameChanged) {
+      const [[existing]] = await db.query('SELECT id FROM users WHERE student_number = ? AND id != ?', [student_number, req.user.id]);
+      if (existing) return res.status(409).json({ message: 'That username is already taken.' });
+    }
+
+    const fields = ['full_name = ?', 'student_number = ?'];
+    const params = [full_name, student_number];
+    if (new_password) {
+      const passwordHash = await bcrypt.hash(new_password, 10);
+      fields.push('password_hash = ?');
+      params.push(passwordHash);
+    }
+    params.push(req.user.id);
+    await db.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, params);
+
+    const changed = [nameChanged && 'name', usernameChanged && 'username', new_password && 'password'].filter(Boolean);
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'admin_account',
+      target_name: full_name,
+      description: changed.length ? `Updated own account (${changed.join(', ')})` : 'Updated own account',
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That username is already taken.' });
+    res.status(500).json({ message: 'Failed to update account.' });
   }
 });
 

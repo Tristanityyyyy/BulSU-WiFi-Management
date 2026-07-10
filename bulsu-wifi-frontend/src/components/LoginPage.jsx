@@ -22,6 +22,11 @@ export default function LoginPage() {
   const [connected, setConnected] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [changePasswordError, setChangePasswordError] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const goToDashboard = () => {
     setConnected(true);
@@ -45,14 +50,19 @@ export default function LoginPage() {
 
     try {
       const res = await axios.post(`${API_BASE}/auth/login`, { username, password });
-      const { token, role } = res.data;
+      const { token, role, must_change_password } = res.data;
 
       if (role === "admin") {
         localStorage.setItem("adminToken", token);
         navigate("/admin/overview");
       } else if (["student", "faculty", "staff"].includes(role)) {
         localStorage.setItem("token", token);
-        goToDashboard();
+        if (must_change_password) {
+          setMustChangePassword(true);
+          setLoading(false);
+        } else {
+          goToDashboard();
+        }
       } else {
         setError("Invalid user role. Please contact support.");
         setLoading(false);
@@ -62,6 +72,67 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setChangePasswordError("");
+    if (newPassword !== confirmNewPassword) {
+      setChangePasswordError("New password and confirmation do not match.");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `${API_BASE}/auth/change-password`,
+        { current_password: password, new_password: newPassword },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      goToDashboard();
+    } catch (err) {
+      setChangePasswordError(err.response?.data?.message || "Failed to change password.");
+      setChangingPassword(false);
+    }
+  };
+
+  if (mustChangePassword) {
+    return (
+      <PageBackground>
+        <Card>
+          <BulsuHeader subtitle="Set a new password to continue" />
+          <form onSubmit={handleChangePassword}>
+            <AlertBanner message={changePasswordError} />
+            <p className="text-xs sm:text-sm text-gray-500 mb-4">
+              This is your first time logging in. Please set a new password before connecting.
+            </p>
+            <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">
+              New Password
+            </label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+              required
+            />
+            <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">
+              Confirm New Password
+            </label>
+            <input
+              type="password"
+              value={confirmNewPassword}
+              onChange={(e) => setConfirmNewPassword(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 mb-6 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+              required
+            />
+            <Button type="submit" disabled={changingPassword}>
+              {changingPassword ? "Saving..." : "Set Password & Connect"}
+            </Button>
+          </form>
+        </Card>
+      </PageBackground>
+    );
+  }
 
   if (connected) {
     return (

@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../../db');
 const crypto = require('crypto');
 const { sweepExpiredGuests } = require('../../jobs/guestExpiry');
+const { logAudit, ACTIONS } = require('../../utils/auditLog');
 
 // GET /api/admin/guests
 router.get('/', async (req, res) => {
@@ -42,6 +43,12 @@ router.post('/', async (req, res) => {
       'INSERT INTO guests (token, starts_at, expires_at, data_limit_gb, status, created_at, created_by) VALUES (?,?,?,?,"active",NOW(),?)',
       [qr_code, start, end, data_limit_gb, req.user.id]
     );
+    await logAudit(req, {
+      action: ACTIONS.CREATED,
+      target_type: 'guest',
+      target_name: `Guest code (expires ${end.toLocaleString()})`,
+      description: `Generated guest QR code (expires ${end.toLocaleString()})`,
+    });
     res.status(201).json({ id: result.insertId, qr_code, starts_at: start, expires_at: end, data_limit_gb, status: 'active' });
   } catch (err) {
     console.error('POST /admin/guests failed:', err);
@@ -52,7 +59,15 @@ router.post('/', async (req, res) => {
 // PATCH /api/admin/guests/:id/revoke
 router.patch('/:id/revoke', async (req, res) => {
   try {
+    const [[g]] = await db.query('SELECT expires_at FROM guests WHERE id=?', [req.params.id]);
     await db.query('UPDATE guests SET status="expired" WHERE id=?', [req.params.id]);
+    const label = g?.expires_at ? `Guest code (expires ${new Date(g.expires_at).toLocaleString()})` : 'Guest code';
+    await logAudit(req, {
+      action: ACTIONS.BLOCKED,
+      target_type: 'guest',
+      target_name: label,
+      description: `Revoked ${label}`,
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('PATCH /admin/guests/:id/revoke failed:', err);
@@ -72,6 +87,13 @@ router.put('/:id', async (req, res) => {
     if (end <= start)
       return res.status(400).json({ message: 'End time must be after start time.' });
     await db.query('UPDATE guests SET starts_at=?, expires_at=? WHERE id=?', [start, end, req.params.id]);
+    const label = `Guest code (expires ${end.toLocaleString()})`;
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'guest',
+      target_name: label,
+      description: `Edited ${label} window to start ${start.toLocaleString()}`,
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /admin/guests/:id failed:', err);
@@ -87,6 +109,13 @@ router.delete('/:id', async (req, res) => {
     const isExpired = guest.status === 'expired' || new Date(guest.expires_at) <= new Date();
     if (!isExpired) return res.status(400).json({ message: 'Only expired guest codes can be deleted.' });
     await db.query('DELETE FROM guests WHERE id=?', [req.params.id]);
+    const label = `Guest code (expired ${new Date(guest.expires_at).toLocaleString()})`;
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'guest',
+      target_name: label,
+      description: `Deleted ${label}`,
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error('DELETE /admin/guests/:id failed:', err);

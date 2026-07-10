@@ -14,6 +14,7 @@ import AdminEmergency from './components/admin/AdminEmergency'
 import AdminFeedback from './components/admin/AdminFeedback'
 import AdminNotifications from './components/admin/AdminNotifications'
 import AdminSettings from './components/admin/AdminSettings'
+import AdminAuditLog from './components/admin/AdminAuditLog'
 import './App.css'
 
 function App() {
@@ -33,6 +34,7 @@ function App() {
         <Route path="feedback" element={<AdminFeedback />} />
         <Route path="notifications" element={<AdminNotifications />} />
         <Route path="settings" element={<AdminSettings />} />
+        <Route path="audit-log" element={<AdminAuditLog />} />
       </Route>
     </Routes>
   )

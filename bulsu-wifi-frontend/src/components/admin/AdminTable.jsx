@@ -13,14 +13,17 @@ export default function AdminTable({ columns, rows, loading, emptyText = "No rec
           )}
           <thead>
             <tr className="bg-slate-50/70 dark:bg-wine-900/70 border-b border-slate-200 dark:border-wine-800">
-              {columns.map((col) => {
-                const isSortable = typeof col === "object" && col !== null;
-                const key = isSortable ? col.key : col;
+              {columns.map((col, i) => {
+                const hasCustomRender = typeof col === "object" && col !== null && typeof col.render === "function";
+                const isSortable = typeof col === "object" && col !== null && !hasCustomRender;
+                const key = hasCustomRender ? (col.key ?? i) : isSortable ? col.key : col;
                 const label = isSortable ? col.label : col;
                 const active = isSortable && sortKey === key;
                 return (
                   <th key={key} className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-gray-500 whitespace-nowrap">
-                    {isSortable ? (
+                    {hasCustomRender ? (
+                      col.render()
+                    ) : isSortable ? (
                       <button type="button" onClick={() => onSort?.(key)}
                         className={`inline-flex items-center gap-1 uppercase tracking-wide transition ${active ? "text-pink-600 dark:text-pink-400" : "hover:text-slate-600 dark:hover:text-gray-200"}`}>
                         {label}

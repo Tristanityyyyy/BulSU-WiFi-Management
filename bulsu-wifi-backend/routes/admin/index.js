@@ -11,5 +11,6 @@ router.use('/emergency',     require('./emergency'));
 router.use('/feedback',      require('./feedback'));
 router.use('/notifications', require('./notifications'));
 router.use('/settings',      require('./settings'));
+router.use('/audit-log',     require('./audit-log'));
 
 module.exports = router;

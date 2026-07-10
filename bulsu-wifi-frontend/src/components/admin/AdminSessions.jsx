@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, WifiOff } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
+import ConfirmDialog from "./ConfirmDialog";
 
 const PAGE_SIZE = 20;
 
@@ -44,6 +45,8 @@ export default function AdminSessions() {
   const [dateTo, setDateTo] = useState("");
   const [status, setStatus] = useState("");
   const [logoutReason, setLogoutReason] = useState("");
+  const [confirm, setConfirm] = useState(null);
+  const [actionError, setActionError] = useState("");
 
   const isGuest = tab === "guest";
 
@@ -72,10 +75,22 @@ export default function AdminSessions() {
     downloadXlsx(res.data, `${tab}-sessions-${Date.now()}.xlsx`);
   };
 
+  const doConfirmedDisconnect = async () => {
+    const { id, isGuest: wasGuest } = confirm;
+    setConfirm(null);
+    setActionError("");
+    try {
+      await adminApi.patch(wasGuest ? `/admin/sessions/guests/${id}/disconnect` : `/admin/sessions/${id}/disconnect`);
+      fetchSessions(page);
+    } catch (err) {
+      setActionError(err.response?.data?.message || "Failed to disconnect session.");
+    }
+  };
+
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const userCols = ["Name", "ID / Number", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status", "Reason"];
-  const guestCols = ["Guest Name", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status"];
+  const userCols = ["Name", "ID / Number", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status", "Reason", "Actions"];
+  const guestCols = ["Guest Name", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status", "Actions"];
 
   const userRows = rows.map((s) => (
     <>
@@ -88,6 +103,14 @@ export default function AdminSessions() {
       <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_reason ?? "—"}</td>
+      <td className="px-4 py-2">
+        {s.status === "active" && (
+          <button onClick={() => setConfirm({ id: s.id, isGuest: false, label: `Disconnect ${s.full_name}'s active session?` })}
+            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
+            <WifiOff size={12} /> Disconnect
+          </button>
+        )}
+      </td>
     </>
   ));
 
@@ -100,6 +123,14 @@ export default function AdminSessions() {
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
+      <td className="px-4 py-2">
+        {s.status === "active" && (
+          <button onClick={() => setConfirm({ id: s.id, isGuest: true, label: `Disconnect guest ${s.guest_name}'s active session?` })}
+            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
+            <WifiOff size={12} /> Disconnect
+          </button>
+        )}
+      </td>
     </>
   ));
 
@@ -151,6 +182,10 @@ export default function AdminSessions() {
         )}
       </div>
 
+      {actionError && (
+        <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2">{actionError}</p>
+      )}
+
       <AdminTable
         columns={isGuest ? guestCols : userCols}
         rows={isGuest ? guestRows : userRows}
@@ -161,6 +196,8 @@ export default function AdminSessions() {
         emptyText={`No ${tab} sessions found.`}
         emptyHint="Try adjusting the date range or status filter."
       />
+
+      {confirm && <ConfirmDialog message={confirm.label} onConfirm={doConfirmedDisconnect} onCancel={() => setConfirm(null)} />}
     </div>
   );
 }
