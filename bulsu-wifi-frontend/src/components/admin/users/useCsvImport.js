@@ -1,8 +1,10 @@
 import { useState } from "react";
 import * as usersApi from "./usersApi";
 
-// Course/section/school-year/semester/enrollment_status only appear in the student template —
-// the faculty/staff template omits them, so only these three are ever required.
+// Course/section/enrollment_status only appear in the student template — the faculty/staff
+// template omits them, so only these three are ever required. School year/semester are no
+// longer per-row columns: every imported student is stamped with whichever period is set as
+// current in Settings.
 const REQUIRED_HEADERS = ["student_number", "full_name", "birth_date"];
 
 function parseCsvLine(line) {
@@ -64,8 +66,6 @@ export default function useCsvImport({ catalog, onImported, onReset }) {
       birth_date: values[idx("birth_date")]?.trim() || "",
       course_code: values[idx("course_code")]?.trim() || "",
       section_name: values[idx("section_name")]?.trim() || "",
-      school_year: values[idx("school_year")]?.trim() || "",
-      semester: values[idx("semester")]?.trim() || "",
       enrollment_status: values[idx("enrollment_status")]?.trim() || "",
     }));
   };

@@ -11,7 +11,13 @@ const getCatalogSettings = async () => {
   const [sections] = await db.query(
     "SELECT id, course_id, name, year_level, status FROM sections WHERE status = 'active' ORDER BY course_id, name"
   );
-  return { courses, sections };
+  const [school_years] = await db.query(
+    "SELECT id, name, status FROM school_years WHERE status = 'active' ORDER BY name"
+  );
+  const [semesters] = await db.query(
+    "SELECT id, name, status FROM semesters WHERE status = 'active' ORDER BY name"
+  );
+  return { courses, sections, school_years, semesters };
 };
 
 // GET /api/admin/settings
@@ -169,6 +175,132 @@ router.delete('/catalog/sections/:id', async (req, res) => {
   }
 });
 
+// POST /api/admin/settings/catalog/school-years
+router.post('/catalog/school-years', async (req, res) => {
+  try {
+    const name = req.body.name?.trim();
+    if (!name) return res.status(400).json({ message: 'School year name is required.' });
+    const [result] = await db.query(
+      'INSERT INTO school_years (name, status) VALUES (?, ?)',
+      [name, 'active']
+    );
+    const school_year = { id: result.insertId, name, status: 'active' };
+    await logAudit(req, {
+      action: ACTIONS.CREATED,
+      target_type: 'school_year',
+      target_name: name,
+      description: `Added school year ${name}`,
+    });
+    res.status(201).json({ school_year });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That school year already exists.' });
+    res.status(500).json({ message: 'Failed to create school year.' });
+  }
+});
+
+// PUT /api/admin/settings/catalog/school-years/:id
+router.put('/catalog/school-years/:id', async (req, res) => {
+  try {
+    const name = req.body.name?.trim();
+    if (!name) return res.status(400).json({ message: 'School year name is required.' });
+    await db.query(
+      'UPDATE school_years SET name = ? WHERE id = ?',
+      [name, Number(req.params.id)]
+    );
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'school_year',
+      target_name: name,
+      description: `Updated school year to ${name}`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That school year already exists.' });
+    res.status(500).json({ message: 'Failed to update school year.' });
+  }
+});
+
+// DELETE /api/admin/settings/catalog/school-years/:id
+router.delete('/catalog/school-years/:id', async (req, res) => {
+  try {
+    const [[school_year]] = await db.query('SELECT name FROM school_years WHERE id = ?', [Number(req.params.id)]);
+    await db.query('DELETE FROM school_years WHERE id = ?', [Number(req.params.id)]);
+    const label = school_year?.name || 'Unknown school year';
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'school_year',
+      target_name: label,
+      description: `Deleted school year ${label}`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete school year.' });
+  }
+});
+
+// POST /api/admin/settings/catalog/semesters
+router.post('/catalog/semesters', async (req, res) => {
+  try {
+    const name = req.body.name?.trim();
+    if (!name) return res.status(400).json({ message: 'Semester name is required.' });
+    const [result] = await db.query(
+      'INSERT INTO semesters (name, status) VALUES (?, ?)',
+      [name, 'active']
+    );
+    const semester = { id: result.insertId, name, status: 'active' };
+    await logAudit(req, {
+      action: ACTIONS.CREATED,
+      target_type: 'semester',
+      target_name: name,
+      description: `Added semester ${name}`,
+    });
+    res.status(201).json({ semester });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That semester already exists.' });
+    res.status(500).json({ message: 'Failed to create semester.' });
+  }
+});
+
+// PUT /api/admin/settings/catalog/semesters/:id
+router.put('/catalog/semesters/:id', async (req, res) => {
+  try {
+    const name = req.body.name?.trim();
+    if (!name) return res.status(400).json({ message: 'Semester name is required.' });
+    await db.query(
+      'UPDATE semesters SET name = ? WHERE id = ?',
+      [name, Number(req.params.id)]
+    );
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'semester',
+      target_name: name,
+      description: `Updated semester to ${name}`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That semester already exists.' });
+    res.status(500).json({ message: 'Failed to update semester.' });
+  }
+});
+
+// DELETE /api/admin/settings/catalog/semesters/:id
+router.delete('/catalog/semesters/:id', async (req, res) => {
+  try {
+    const [[semester]] = await db.query('SELECT name FROM semesters WHERE id = ?', [Number(req.params.id)]);
+    await db.query('DELETE FROM semesters WHERE id = ?', [Number(req.params.id)]);
+    const label = semester?.name || 'Unknown semester';
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'semester',
+      target_name: label,
+      description: `Deleted semester ${label}`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete semester.' });
+  }
+});
+
 // PUT /api/admin/settings
 router.put('/', async (req, res) => {
   try {
@@ -217,7 +349,7 @@ router.put('/account', async (req, res) => {
     if (!current_password) return res.status(400).json({ message: 'Current password is required.' });
 
     const [[admin]] = await db.query('SELECT full_name, student_number FROM users WHERE id = ?', [req.user.id]);
-    if (!(await verifyOwnPassword(req, current_password))) return res.status(401).json({ message: 'Current password is incorrect.' });
+    if (!(await verifyOwnPassword(req, current_password))) return res.status(403).json({ message: 'Current password is incorrect.' });
 
     const usernameChanged = student_number !== admin.student_number;
     const nameChanged = full_name !== admin.full_name;

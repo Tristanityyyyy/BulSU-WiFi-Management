@@ -108,7 +108,7 @@ router.delete('/:id/permanent', async (req, res) => {
     const { password } = req.body;
     if (!password) return res.status(400).json({ message: 'Password is required.' });
 
-    if (!(await verifyOwnPassword(req, password))) return res.status(401).json({ message: 'Incorrect password.' });
+    if (!(await verifyOwnPassword(req, password))) return res.status(403).json({ message: 'Incorrect password.' });
 
     const [[target]] = await db.query(
       'SELECT full_name, student_number FROM users WHERE id=? AND deleted_at IS NOT NULL',
@@ -138,7 +138,7 @@ router.post('/bulk-permanent-delete', async (req, res) => {
     if (ids.length === 0) return res.status(400).json({ message: 'ids array is required.' });
     if (!password) return res.status(400).json({ message: 'Password is required.' });
 
-    if (!(await verifyOwnPassword(req, password))) return res.status(401).json({ message: 'Incorrect password.' });
+    if (!(await verifyOwnPassword(req, password))) return res.status(403).json({ message: 'Incorrect password.' });
 
     const placeholders = ids.map(() => '?').join(',');
     const [affected] = await db.query(

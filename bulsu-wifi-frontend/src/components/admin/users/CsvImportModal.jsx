@@ -62,7 +62,7 @@ export default function CsvImportModal({ csv }) {
           <div className="overflow-auto max-h-[45vh] border border-pink-100 dark:border-pink-900/60 rounded-xl">
             <table className="w-full text-xs">
               <thead className="bg-pink-50 dark:bg-pink-950/40 sticky top-0">
-                <tr>{["Student No.", "Name", "Birth Date", "Course Code", "Section Name", "School Year", "Semester", "Enrollment", ""].map((h) => (
+                <tr>{["Student No.", "Name", "Birth Date", "Course Code", "Section Name", "Enrollment", ""].map((h) => (
                   <th key={h} className="px-3 py-2 text-left text-gray-600 dark:text-gray-300 font-semibold whitespace-nowrap">{h}</th>
                 ))}</tr>
               </thead>
@@ -77,8 +77,6 @@ export default function CsvImportModal({ csv }) {
                       <td className="px-3 py-1.5">{r.birth_date}</td>
                       <td className={`px-3 py-1.5 ${invalid ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.course_code}</td>
                       <td className={`px-3 py-1.5 ${invalid ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.section_name}</td>
-                      <td className="px-3 py-1.5">{r.school_year}</td>
-                      <td className="px-3 py-1.5">{r.semester}</td>
                       <td className="px-3 py-1.5">{r.enrollment_status}</td>
                       <td className="px-3 py-1.5">
                         <button type="button" onClick={() => removeCsvRow(i)} aria-label="Remove row"

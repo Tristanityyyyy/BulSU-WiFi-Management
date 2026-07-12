@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Save, Gauge, Database, Timer, Smartphone, GraduationCap, Users2, X, SunMoon, Sun, Moon, Monitor, UserCog } from "lucide-react";
+import { Save, Gauge, Database, Timer, Smartphone, GraduationCap, Users2, CalendarRange, Layers, X, SunMoon, Sun, Moon, Monitor, UserCog } from "lucide-react";
 import adminApi from "./adminApi";
 import { useTheme } from "../../theme";
 import LoadingSpinner from "../ui/LoadingSpinner";
@@ -21,6 +21,7 @@ const DEFAULTS = {
   one_device_policy: "true",
   max_devices_student: 2,        max_devices_faculty: 3,
   max_devices_staff: 3,          max_devices_admin: 5,
+  current_school_year_id: "",    current_semester_id: "",
 };
 
 const NAV_GROUPS = [
@@ -38,6 +39,8 @@ const NAV_GROUPS = [
     items: [
       { key: "courses", label: "Courses", icon: GraduationCap },
       { key: "sections", label: "Sections", icon: Users2 },
+      { key: "school_years", label: "School Years", icon: CalendarRange },
+      { key: "semesters", label: "Semesters", icon: Layers },
     ],
   },
   {
@@ -65,7 +68,7 @@ const NETWORK_SECTIONS = ["bandwidth", "datacap", "timeout", "devicepolicy"];
 export default function AdminSettings() {
   const { theme, setTheme } = useTheme();
   const [settings, setSettings] = useState(DEFAULTS);
-  const [catalog, setCatalog] = useState({ courses: [], sections: [] });
+  const [catalog, setCatalog] = useState({ courses: [], sections: [], school_years: [], semesters: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -80,7 +83,7 @@ export default function AdminSettings() {
     ])
       .then(([settingsRes, catalogRes]) => {
         setSettings({ ...DEFAULTS, ...settingsRes.data });
-        setCatalog(catalogRes.data || { courses: [], sections: [] });
+        setCatalog(catalogRes.data || { courses: [], sections: [], school_years: [], semesters: [] });
       })
       .finally(() => setLoading(false));
   }, []);
@@ -115,7 +118,7 @@ export default function AdminSettings() {
   }
 
   const isNetworkSection = NETWORK_SECTIONS.includes(activeSection);
-  const isCatalogSection = activeSection === "courses" || activeSection === "sections";
+  const isCatalogSection = ["courses", "sections", "school_years", "semesters"].includes(activeSection);
 
   return (
     <div className="space-y-4">
@@ -201,7 +204,14 @@ export default function AdminSettings() {
           {activeSection === "account" && <AccountSettingsSection />}
 
           {isCatalogSection && (
-            <CatalogSettingsSection activeSection={activeSection} catalog={catalog} onCatalogChange={setCatalog} onError={setError} />
+            <CatalogSettingsSection
+              activeSection={activeSection}
+              catalog={catalog}
+              onCatalogChange={setCatalog}
+              onError={setError}
+              settings={settings}
+              onSettingsChange={handleChange}
+            />
           )}
         </div>
       </div>

@@ -5,13 +5,16 @@ const bcrypt = require('bcrypt');
 const ExcelJS = require('exceljs');
 const { logAudit, ACTIONS } = require('../../../utils/auditLog');
 const { styleHeaderCell, buildBrandedWorkbook, sendWorkbook } = require('../../../utils/xlsxBrand');
+const { getSettings } = require('../../../utils/settings');
 
 const VALID_IMPORT_ROLES = ['student', 'faculty', 'staff'];
 
 const fetchActiveCatalog = async () => {
   const [courses] = await db.query("SELECT id, code, name FROM courses WHERE status = 'active' ORDER BY code");
   const [sections] = await db.query("SELECT id, course_id, name FROM sections WHERE status = 'active' ORDER BY course_id, name");
-  return { courses, sections };
+  const [school_years] = await db.query("SELECT id, name FROM school_years WHERE status = 'active' ORDER BY name");
+  const [semesters] = await db.query("SELECT id, name FROM semesters WHERE status = 'active' ORDER BY name");
+  return { courses, sections, school_years, semesters };
 };
 
 // POST /api/admin/users/parse-xlsx
@@ -139,7 +142,7 @@ router.get('/csv-template', async (req, res) => {
 
     const workbook = await buildBrandedWorkbook({
       title: 'BulSU Wi-Fi — Student Roster Template',
-      subtitle: 'Fill one row per student. Course and Section must exactly match the "Course & Section Reference" sheet — type them in manually.',
+      subtitle: 'Fill one row per student. Course and Section must exactly match the "Course & Section Reference" sheet — type them in manually. School year and semester are not entered here — every imported student is stamped with whichever period is set as current in Settings.',
       sheetName: 'Students',
       columns: [
         { header: 'student_number', width: 16 },
@@ -147,17 +150,14 @@ router.get('/csv-template', async (req, res) => {
         { header: 'birth_date', width: 14 },
         { header: 'course_code', width: 14 },
         { header: 'section_name', width: 14 },
-        { header: 'school_year', width: 14 },
-        { header: 'semester', width: 10 },
         { header: 'enrollment_status', width: 18 },
       ],
       exampleRows: [
-        ['2024001', 'Dela Cruz, Juan Miguel', '2006-08-15', firstCourse?.code || '', courseSections[0]?.name || '', '2025-2026', '1st', 'enrolled'],
-        ['2024002', 'Santos, Maria Clara', '2005-11-12', firstCourse?.code || '', courseSections[1]?.name || courseSections[0]?.name || '', '2025-2026', '1st', 'enrolled'],
+        ['2024001', 'Dela Cruz, Juan Miguel', '2006-08-15', firstCourse?.code || '', courseSections[0]?.name || '', 'enrolled'],
+        ['2024002', 'Santos, Maria Clara', '2005-11-12', firstCourse?.code || '', courseSections[1]?.name || courseSections[0]?.name || '', 'enrolled'],
       ],
       dataValidations: [
-        { column: 'H', fromRow: 4, toRow: 500, formulae: ['"enrolled,not_enrolled"'] },
-        { column: 'G', fromRow: 4, toRow: 500, formulae: ['"1st,2nd,Summer"'] },
+        { column: 'F', fromRow: 4, toRow: 500, formulae: ['"enrolled,not_enrolled"'] },
       ],
       extraSheets: [buildCatalogReferenceSheet(courses, sections)],
     });
@@ -176,11 +176,14 @@ router.post('/csv-import', async (req, res) => {
     if (!VALID_IMPORT_ROLES.includes(role))
       return res.status(400).json({ message: 'role must be one of: student, faculty, staff.' });
 
-    // For students, resolve every row's course_code/section_name against the live catalog.
-    // If any row references a course or section that isn't registered, reject the whole file.
-    let resolvedIds = rows.map(() => ({ course_id: null, section_id: null }));
+    // Resolve every row's free-text course/section against the live catalog. If any row
+    // references a course or section that isn't registered, reject the whole file.
+    const { courses, sections, school_years, semesters } = await fetchActiveCatalog();
+    const invalidRows = [];
+    const resolvedIds = rows.map(() => ({ course_id: null, section_id: null }));
+
+    // Course/section resolution only applies to students.
     if (role === 'student') {
-      const { courses, sections } = await fetchActiveCatalog();
       const courseByCode = new Map(courses.map((c) => [(c.code || '').trim().toUpperCase(), c]));
       const sectionsByCourse = new Map();
       sections.forEach((s) => {
@@ -188,36 +191,53 @@ router.post('/csv-import', async (req, res) => {
         sectionsByCourse.get(s.course_id).set((s.name || '').trim().toUpperCase(), s);
       });
 
-      const invalidRows = [];
-      resolvedIds = rows.map((row, idx) => {
+      rows.forEach((row, idx) => {
         const courseCode = row.course_code?.trim() || '';
         const sectionName = row.section_name?.trim() || '';
-        if (!courseCode && !sectionName) return { course_id: null, section_id: null };
+        if (!courseCode && !sectionName) return;
 
         if (!courseCode) {
           invalidRows.push({ row: idx + 2, student_number: row.student_number || '', course_code: courseCode, section_name: sectionName, reason: 'A section was given without a course.' });
-          return { course_id: null, section_id: null };
+          return;
         }
         const course = courseByCode.get(courseCode.toUpperCase());
         if (!course) {
           invalidRows.push({ row: idx + 2, student_number: row.student_number || '', course_code: courseCode, section_name: sectionName, reason: `Course "${courseCode}" is not registered.` });
-          return { course_id: null, section_id: null };
+          return;
         }
-        if (!sectionName) return { course_id: course.id, section_id: null };
+        resolvedIds[idx].course_id = course.id;
+        if (!sectionName) return;
 
         const section = sectionsByCourse.get(course.id)?.get(sectionName.toUpperCase());
         if (!section) {
           invalidRows.push({ row: idx + 2, student_number: row.student_number || '', course_code: courseCode, section_name: sectionName, reason: `Section "${sectionName}" is not registered under course "${courseCode}".` });
-          return { course_id: course.id, section_id: null };
+          return;
         }
-        return { course_id: course.id, section_id: section.id };
+        resolvedIds[idx].section_id = section.id;
       });
+    }
 
-      if (invalidRows.length) {
-        return res.status(400).json({
-          message: `Import rejected: ${invalidRows.length} row(s) reference a course or section that is not registered in the system. No rows were imported.`,
-          invalid_rows: invalidRows,
-        });
+    if (invalidRows.length) {
+      return res.status(400).json({
+        message: `Import rejected: ${invalidRows.length} row(s) reference a course or section that is not registered in the system. No rows were imported.`,
+        invalid_rows: invalidRows,
+      });
+    }
+
+    // Students are always stamped with whichever school year/semester the admin has
+    // marked as "current" in Settings — there's no per-row school_year/semester column
+    // in the template anymore. Refuse to import until a valid current period is set, so
+    // students never end up silently unassigned to a term.
+    let currentSchoolYearId = null;
+    let currentSemesterId = null;
+    if (role === 'student') {
+      const termSettings = await getSettings(['current_school_year_id', 'current_semester_id']);
+      currentSchoolYearId = Number(termSettings.current_school_year_id) || null;
+      currentSemesterId = Number(termSettings.current_semester_id) || null;
+      const validSchoolYear = currentSchoolYearId && school_years.some((sy) => sy.id === currentSchoolYearId);
+      const validSemester = currentSemesterId && semesters.some((s) => s.id === currentSemesterId);
+      if (!validSchoolYear || !validSemester) {
+        return res.status(400).json({ message: 'Set the current school year and semester in Settings before importing students.' });
       }
     }
 
@@ -266,15 +286,15 @@ router.post('/csv-import', async (req, res) => {
         const { course_id, section_id } = resolvedIds[i];
 
         await db.query(
-          'INSERT INTO users (student_number, full_name, birth_date, course_id, section_id, school_year, semester, enrollment_status, role, status, password_hash, must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',
+          'INSERT INTO users (student_number, full_name, birth_date, course_id, section_id, school_year_id, semester_id, enrollment_status, role, status, password_hash, must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',
           [
             row.student_number.trim(),
             row.full_name.trim(),
             row.birth_date.trim(),
             course_id,
             section_id,
-            row.school_year?.trim() || null,
-            row.semester?.trim() || null,
+            currentSchoolYearId,
+            currentSemesterId,
             row.enrollment_status?.trim() || null,
             role,
             'active',

@@ -1,22 +1,26 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, GraduationCap, Users2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, GraduationCap, Users2, CalendarRange, Layers, X } from "lucide-react";
 import adminApi from "../adminApi";
 import ConfirmDialog from "../ConfirmDialog";
 import SectionCard from "./SectionCard";
 
-// Courses / sections tabs — full catalog CRUD. Owns its own edit-form and
-// delete-confirmation state since nothing outside this tab needs it.
-export default function CatalogSettingsSection({ activeSection, catalog, onCatalogChange, onError }) {
+// Courses / sections / school years / semesters tabs — full catalog CRUD. Owns its
+// own edit-form and delete-confirmation state since nothing outside this tab needs it.
+export default function CatalogSettingsSection({ activeSection, catalog, onCatalogChange, onError, settings, onSettingsChange }) {
   const [courseForm, setCourseForm] = useState({ code: "", name: "" });
   const [editingCourseId, setEditingCourseId] = useState(null);
   const [sectionForm, setSectionForm] = useState({ name: "", course_id: "" });
   const [editingSectionId, setEditingSectionId] = useState(null);
   const [sectionCourseFilter, setSectionCourseFilter] = useState("");
+  const [schoolYearForm, setSchoolYearForm] = useState({ name: "" });
+  const [editingSchoolYearId, setEditingSchoolYearId] = useState(null);
+  const [semesterForm, setSemesterForm] = useState({ name: "" });
+  const [editingSemesterId, setEditingSemesterId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
 
   const refreshCatalog = async () => {
     const res = await adminApi.get("/admin/settings/catalog");
-    onCatalogChange(res.data || { courses: [], sections: [] });
+    onCatalogChange(res.data || { courses: [], sections: [], school_years: [], semesters: [] });
   };
 
   // Collapses the try/save-or-delete/refresh/report-error pattern shared by all four
@@ -60,11 +64,42 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
   const handleSectionDelete = (id) =>
     runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/sections/${id}`), "Unable to delete section.");
 
+  const cancelSchoolYearEdit = () => { setEditingSchoolYearId(null); setSchoolYearForm({ name: "" }); };
+  const cancelSemesterEdit = () => { setEditingSemesterId(null); setSemesterForm({ name: "" }); };
+
+  const handleSchoolYearSubmit = (e) => {
+    e.preventDefault();
+    const payload = { name: schoolYearForm.name.trim() };
+    runCatalogAction(async () => {
+      if (editingSchoolYearId) await adminApi.put(`/admin/settings/catalog/school-years/${editingSchoolYearId}`, payload);
+      else await adminApi.post("/admin/settings/catalog/school-years", payload);
+      cancelSchoolYearEdit();
+    }, "Unable to save school year.");
+  };
+
+  const handleSchoolYearDelete = (id) =>
+    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/school-years/${id}`), "Unable to delete school year.");
+
+  const handleSemesterSubmit = (e) => {
+    e.preventDefault();
+    const payload = { name: semesterForm.name.trim() };
+    runCatalogAction(async () => {
+      if (editingSemesterId) await adminApi.put(`/admin/settings/catalog/semesters/${editingSemesterId}`, payload);
+      else await adminApi.post("/admin/settings/catalog/semesters", payload);
+      cancelSemesterEdit();
+    }, "Unable to save semester.");
+  };
+
+  const handleSemesterDelete = (id) =>
+    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/semesters/${id}`), "Unable to delete semester.");
+
   const doConfirmedDelete = async () => {
     const { type, id } = confirmDelete;
     setConfirmDelete(null);
     if (type === "course") await handleCourseDelete(id);
     if (type === "section") await handleSectionDelete(id);
+    if (type === "school_year") await handleSchoolYearDelete(id);
+    if (type === "semester") await handleSemesterDelete(id);
   };
 
   const visibleSections = (catalog.sections || []).filter(
@@ -259,6 +294,178 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
                 </div>
               );
             })}
+          </div>
+        </SectionCard>
+      )}
+
+      {activeSection === "school_years" && (
+        <SectionCard icon={<CalendarRange size={16} />} title="School Years" hint="School years available for CSV student roster import.">
+          {!editingSchoolYearId && (
+            <form onSubmit={handleSchoolYearSubmit} className="flex flex-wrap items-start gap-2">
+              <div>
+                <input
+                  type="number"
+                  value={(schoolYearForm.name || "").split("-")[0] || ""}
+                  onChange={(e) => setSchoolYearForm({ name: e.target.value ? `${e.target.value}-${Number(e.target.value) + 1}` : "" })}
+                  placeholder="2025"
+                  className="w-28 border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+                />
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Will save as: {schoolYearForm.name || "—"}</p>
+              </div>
+              <button type="submit" className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl px-3.5 py-2 text-xs font-semibold shadow-sm transition shrink-0">
+                <Plus size={13} />
+                Add
+              </button>
+            </form>
+          )}
+          <div className="mt-3">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              Current school year (used for CSV imports)
+              <select
+                value={settings?.current_school_year_id || ""}
+                onChange={(e) => onSettingsChange("current_school_year_id", e.target.value)}
+                className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+              >
+                <option value="">Not set</option>
+                {(catalog.school_years || []).map((sy) => (
+                  <option key={sy.id} value={sy.id}>{sy.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {(catalog.school_years || []).length === 0 && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">No school years yet — add your first school year above.</p>
+            )}
+            {(catalog.school_years || []).map((schoolYear) => (
+              editingSchoolYearId === schoolYear.id ? (
+                <form key={schoolYear.id} onSubmit={handleSchoolYearSubmit}
+                  className="flex items-start gap-2 rounded-xl px-3 py-2 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
+                  <div className="flex-1 min-w-0">
+                    <input
+                      autoFocus
+                      type="number"
+                      value={(schoolYearForm.name || "").split("-")[0] || ""}
+                      onChange={(e) => setSchoolYearForm({ name: e.target.value ? `${e.target.value}-${Number(e.target.value) + 1}` : "" })}
+                      placeholder="2025"
+                      className="w-28 border border-slate-200 dark:border-wine-800 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+                    />
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Will save as: {schoolYearForm.name || "—"}</p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save school year">
+                      <Pencil size={13} />
+                    </button>
+                    <button type="button" onClick={cancelSchoolYearEdit}
+                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
+                      <X size={13} />
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div key={schoolYear.id}
+                  className="group flex items-center justify-between rounded-xl px-3 py-2 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
+                  <span className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                    {schoolYear.name}
+                    {String(schoolYear.id) === String(settings?.current_school_year_id) && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-300 border border-pink-100 dark:border-pink-900 shrink-0">Current</span>
+                    )}
+                  </span>
+                  <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button type="button" onClick={() => { setEditingSchoolYearId(schoolYear.id); setSchoolYearForm({ name: schoolYear.name || "" }); }}
+                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit school year">
+                      <Pencil size={13} />
+                    </button>
+                    <button type="button" onClick={() => setConfirmDelete({ type: "school_year", id: schoolYear.id, label: `Delete school year ${schoolYear.name}? This cannot be undone.` })}
+                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete school year">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              )
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {activeSection === "semesters" && (
+        <SectionCard icon={<Layers size={16} />} title="Semesters" hint="Semesters available for CSV student roster import.">
+          {!editingSemesterId && (
+            <form onSubmit={handleSemesterSubmit} className="flex gap-2">
+              <input
+                value={semesterForm.name}
+                onChange={(e) => setSemesterForm({ name: e.target.value })}
+                placeholder="Semester (e.g. 1st)"
+                className="flex-1 min-w-0 border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+              />
+              <button type="submit" className="inline-flex items-center gap-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl px-3.5 py-2 text-xs font-semibold shadow-sm transition shrink-0">
+                <Plus size={13} />
+                Add
+              </button>
+            </form>
+          )}
+          <div className="mt-3">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              Current semester (used for CSV imports)
+              <select
+                value={settings?.current_semester_id || ""}
+                onChange={(e) => onSettingsChange("current_semester_id", e.target.value)}
+                className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+              >
+                <option value="">Not set</option>
+                {(catalog.semesters || []).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {(catalog.semesters || []).length === 0 && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">No semesters yet — add your first semester above.</p>
+            )}
+            {(catalog.semesters || []).map((semester) => (
+              editingSemesterId === semester.id ? (
+                <form key={semester.id} onSubmit={handleSemesterSubmit}
+                  className="flex items-center gap-2 rounded-xl px-3 py-2 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
+                  <input
+                    autoFocus
+                    value={semesterForm.name}
+                    onChange={(e) => setSemesterForm({ name: e.target.value })}
+                    placeholder="Semester"
+                    className="flex-1 min-w-0 border border-slate-200 dark:border-wine-800 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save semester">
+                      <Pencil size={13} />
+                    </button>
+                    <button type="button" onClick={cancelSemesterEdit}
+                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
+                      <X size={13} />
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div key={semester.id}
+                  className="group flex items-center justify-between rounded-xl px-3 py-2 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
+                  <span className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                    {semester.name}
+                    {String(semester.id) === String(settings?.current_semester_id) && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-300 border border-pink-100 dark:border-pink-900 shrink-0">Current</span>
+                    )}
+                  </span>
+                  <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button type="button" onClick={() => { setEditingSemesterId(semester.id); setSemesterForm({ name: semester.name || "" }); }}
+                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit semester">
+                      <Pencil size={13} />
+                    </button>
+                    <button type="button" onClick={() => setConfirmDelete({ type: "semester", id: semester.id, label: `Delete semester ${semester.name}? This cannot be undone.` })}
+                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete semester">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              )
+            ))}
           </div>
         </SectionCard>
       )}

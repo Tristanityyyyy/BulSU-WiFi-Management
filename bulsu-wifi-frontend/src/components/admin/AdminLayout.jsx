@@ -4,6 +4,7 @@ import {
   Siren, MessageSquare, Bell, Settings, LogOut, Sun, Moon, ScrollText,
 } from "lucide-react";
 import { useTheme } from "../../theme";
+import adminApi from "./adminApi";
 
 // Grouped by what campus IT actually does with each screen.
 const NAV_GROUPS = [
@@ -61,7 +62,12 @@ export default function AdminLayout() {
   const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await adminApi.post("/session/disconnect");
+    } catch {
+      // Best-effort — still log out locally even if the server call fails.
+    }
     localStorage.removeItem("adminToken");
     navigate("/admin/login");
   };
