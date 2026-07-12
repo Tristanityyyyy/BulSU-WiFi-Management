@@ -38,16 +38,18 @@ router.get('/', async (req, res) => {
 // POST /api/admin/users
 router.post('/', async (req, res) => {
   try {
-    const { student_number, full_name, course_id, section_id, enrollment_status, role, password } = req.body;
+    const { student_number, full_name, birthdate, course_id, section_id, enrollment_status, role, password } = req.body;
     if (!student_number || !full_name || !password)
       return res.status(400).json({ message: 'student_number, full_name, and password are required.' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthdate || ''))
+      return res.status(400).json({ message: 'A valid birth date (YYYY-MM-DD) is required.' });
     const finalRole = role || 'student';
     if (!VALID_IMPORT_ROLES.includes(finalRole))
       return res.status(400).json({ message: 'role must be one of: student, faculty, staff.' });
     const hashed = await bcrypt.hash(password, 10);
     const [result] = await db.query(
-      'INSERT INTO users (student_number, full_name, course_id, section_id, enrollment_status, password_hash, role, status, must_change_password) VALUES (?,?,?,?,?,?,?,?,1)',
-      [student_number, full_name, finalRole === 'student' ? normalizeId(course_id) : null, finalRole === 'student' ? normalizeId(section_id) : null, enrollment_status, hashed, finalRole, 'active']
+      'INSERT INTO users (student_number, full_name, birth_date, course_id, section_id, enrollment_status, password_hash, role, status, must_change_password) VALUES (?,?,?,?,?,?,?,?,?,1)',
+      [student_number, full_name, birthdate, finalRole === 'student' ? normalizeId(course_id) : null, finalRole === 'student' ? normalizeId(section_id) : null, enrollment_status, hashed, finalRole, 'active']
     );
     await logAudit(req, {
       action: ACTIONS.CREATED,
