@@ -3,6 +3,8 @@ const router = express.Router();
 const db = require('../../../db');
 const bcrypt = require('bcrypt');
 const { logAudit, ACTIONS } = require('../../../utils/auditLog');
+const { verifyOwnPassword } = require('../../../utils/verifyOwnPassword');
+const { derivePassword } = require('../../../utils/derivePassword');
 
 const VALID_IMPORT_ROLES = ['student', 'faculty', 'staff'];
 
@@ -96,6 +98,38 @@ router.put('/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update user.' });
+  }
+});
+
+// PATCH /api/admin/users/:id/reset-password — requires the ADMIN's own password
+// (step-up auth), resets the target's password to the same default formula used
+// at creation/import (LastName + birthdate), and forces them to change it on next login.
+router.patch('/:id/reset-password', async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ message: 'Password is required.' });
+
+    if (!(await verifyOwnPassword(req, password))) return res.status(403).json({ message: 'Incorrect password.' });
+
+    const [[target]] = await db.query(
+      "SELECT full_name, student_number, birth_date FROM users WHERE id=? AND deleted_at IS NULL AND role != 'admin'",
+      [req.params.id]
+    );
+    if (!target) return res.status(404).json({ message: 'User not found.' });
+
+    const newPassword = derivePassword(target);
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?', [hashed, req.params.id]);
+
+    await logAudit(req, {
+      action: ACTIONS.RESET_PASSWORD,
+      target_type: 'user',
+      target_name: target.full_name,
+      description: `Reset password for ${target.full_name} (${target.student_number})`,
+    });
+    res.json({ password: newPassword });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to reset password.' });
   }
 });
 

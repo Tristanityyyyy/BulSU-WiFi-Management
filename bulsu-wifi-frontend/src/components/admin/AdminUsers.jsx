@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { UserPlus, Upload, Download, ShieldOff, ShieldCheck, Pencil, Trash2, RotateCcw } from "lucide-react";
+import { UserPlus, Upload, Download, ShieldOff, ShieldCheck, Pencil, Trash2, RotateCcw, KeyRound } from "lucide-react";
 import adminApi from "./adminApi";
 import * as usersApi from "./users/usersApi";
 import UserFormModal from "./users/UserFormModal";
 import PermanentDeleteModal from "./users/PermanentDeleteModal";
+import ResetPasswordModal from "./users/ResetPasswordModal";
 import useCsvImport from "./users/useCsvImport";
 import CsvImportModal from "./users/CsvImportModal";
 import useUserList from "./users/useUserList";
@@ -26,6 +27,7 @@ export default function AdminUsers() {
   const userList = useUserList({ pageSize: PAGE_SIZE });
   const trashList = useTrashList({ pageSize: PAGE_SIZE, active: view === "trash" });
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState(null);
   const [bulkPermanentDeleteOpen, setBulkPermanentDeleteOpen] = useState(false);
   const [permanentDeleteError, setPermanentDeleteError] = useState("");
   const [confirm, setConfirm] = useState(null);
@@ -136,6 +138,10 @@ export default function AdminUsers() {
             <button onClick={() => setModal(u)}
               className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
               <Pencil size={12} />Edit
+            </button>
+            <button onClick={() => setResetPasswordTarget(u)}
+              className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
+              <KeyRound size={12} />Reset Password
             </button>
             <button onClick={() => setConfirm({ action: "trash-one", userId: u.id, label: `Move ${u.full_name} to trash? They can be restored within 30 days before being permanently deleted.` })}
               className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline">
@@ -318,6 +324,13 @@ export default function AdminUsers() {
           confirmLabel="OK"
           onConfirm={() => setErrorMessage("")}
           onCancel={() => setErrorMessage("")}
+        />
+      )}
+      {resetPasswordTarget && (
+        <ResetPasswordModal
+          user={resetPasswordTarget}
+          onClose={() => setResetPasswordTarget(null)}
+          onReset={() => userList.fetchUsers(userList.page)}
         />
       )}
       {permanentDeleteTarget && (

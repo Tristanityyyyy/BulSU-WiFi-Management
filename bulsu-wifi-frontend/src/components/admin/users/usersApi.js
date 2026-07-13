@@ -8,6 +8,7 @@ export const updateUser = (id, payload) => adminApi.put(`/admin/users/${id}`, pa
 
 export const blockUser = (id) => adminApi.patch(`/admin/users/${id}/block`);
 export const unblockUser = (id) => adminApi.patch(`/admin/users/${id}/unblock`);
+export const resetPassword = (id, password) => adminApi.patch(`/admin/users/${id}/reset-password`, { password });
 
 export const restoreUser = (id) => adminApi.patch(`/admin/users/${id}/restore`);
 export const bulkRestore = (ids) => adminApi.post("/admin/users/bulk-restore", { ids });

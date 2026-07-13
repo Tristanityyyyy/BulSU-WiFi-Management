@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { Wifi, CheckCircle2, Clock, XCircle, User } from "lucide-react";
+import FeedbackModal from "./feedback/FeedbackModal";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -17,6 +18,7 @@ export default function GuestVerify() {
   const [connectedGuestName, setConnectedGuestName] = useState("");
   const [expiresAt, setExpiresAt] = useState(null);
   const [countdown, setCountdown] = useState(null);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   // Step 1: on load, check the token is real and not expired/used yet.
   // This does NOT create a session or consume the token.
@@ -77,13 +79,29 @@ export default function GuestVerify() {
       const secs = Math.floor((remaining % 60000) / 1000);
       setCountdown(`${mins}m ${secs}s`);
       if (remaining === 0) {
-        setStatus("expired");
         setMessage("Your session has expired. Please request a new QR code.");
+        setShowFeedback(true);
         clearInterval(interval);
       }
     }, 1000);
     return () => clearInterval(interval);
   }, [expiresAt]);
+
+  const handleFeedbackSubmit = async ({ stars, comment }) => {
+    try {
+      await axios.post(`${API_BASE}/feedback`, { stars, comment, guestName: connectedGuestName });
+    } catch {
+      // best-effort — a failed feedback submission shouldn't block the expiry screen
+    } finally {
+      setShowFeedback(false);
+      setStatus("expired");
+    }
+  };
+
+  const handleFeedbackSkip = () => {
+    setShowFeedback(false);
+    setStatus("expired");
+  };
 
   return (
     <div className="relative min-h-screen flex items-center justify-center px-4 overflow-hidden bg-wine-950">
@@ -191,6 +209,14 @@ export default function GuestVerify() {
 
         <p className="text-xs text-gray-300 mt-6">By connecting you agree to the BulSU Acceptable Use Policy.</p>
       </div>
+
+      {showFeedback && (
+        <FeedbackModal
+          onSubmit={handleFeedbackSubmit}
+          onCancel={handleFeedbackSkip}
+          cancelLabel="Skip"
+        />
+      )}
     </div>
   );
 }

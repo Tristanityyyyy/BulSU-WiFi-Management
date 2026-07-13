@@ -5,6 +5,7 @@ import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import LoadingSpinner from "./ui/LoadingSpinner";
 import WifiIcon from "./ui/WifiIcon";
+import FeedbackModal from "./feedback/FeedbackModal";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const POLL_INTERVAL_MS = 20000;
@@ -29,7 +30,7 @@ export default function SessionDashboard() {
   const [secondsLeft, setSecondsLeft] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [disconnecting, setDisconnecting] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const hasWarnedLowData = useRef(false);
   const hasWarnedLowTime = useRef(false);
 
@@ -65,7 +66,7 @@ export default function SessionDashboard() {
         if (prev <= 1) {
           clearInterval(tick);
           setError("Your session has ended. Please log in again to reconnect.");
-          setTimeout(() => (window.location.href = "/"), 2500);
+          setShowFeedback(true);
           return 0;
         }
         return prev - 1;
@@ -94,8 +95,7 @@ export default function SessionDashboard() {
     }
   }, []);
 
-  const handleDisconnect = async () => {
-    setDisconnecting(true);
+  const finishDisconnect = async () => {
     try {
       await axios.post(`${API_BASE}/session/disconnect`, {}, { headers: { Authorization: `Bearer ${token}` } });
     } catch {
@@ -104,6 +104,22 @@ export default function SessionDashboard() {
       localStorage.removeItem("token");
       window.location.href = "/";
     }
+  };
+
+  const handleFeedbackSubmit = async ({ stars, comment }) => {
+    try {
+      await axios.post(`${API_BASE}/feedback`, { stars, comment }, { headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      // best-effort — don't block logout on a failed feedback submission
+    } finally {
+      setShowFeedback(false);
+      finishDisconnect();
+    }
+  };
+
+  const handleFeedbackSkip = () => {
+    setShowFeedback(false);
+    finishDisconnect();
   };
 
   if (loading) {
@@ -178,14 +194,20 @@ export default function SessionDashboard() {
           )}
         </div>
 
-        <Button onClick={handleDisconnect} disabled={disconnecting}>
-          {disconnecting ? "Disconnecting..." : "Disconnect"}
-        </Button>
+        <Button onClick={() => setShowFeedback(true)}>Disconnect</Button>
 
         <p className="text-center text-xs text-gray-400 mt-4">
           Usage updates every {POLL_INTERVAL_MS / 1000}s. Values may lag slightly behind actual network activity.
         </p>
       </div>
+
+      {showFeedback && (
+        <FeedbackModal
+          onSubmit={handleFeedbackSubmit}
+          onCancel={handleFeedbackSkip}
+          cancelLabel="Skip"
+        />
+      )}
     </div>
   );
 }

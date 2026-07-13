@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { MessageSquare } from "lucide-react";
 import axios from "axios";
 import PageBackground from "./layout/PageBackground";
 import Card from "./layout/Card";
@@ -8,8 +7,6 @@ import BulsuHeader from "./layout/BulsuHeader";
 import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import WifiIcon from "./ui/WifiIcon";
-import FeedbackModal from "./feedback/FeedbackModal";
-import ConfirmModal from "./feedback/ConfirmModal";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -20,8 +17,6 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -31,16 +26,6 @@ export default function LoginPage() {
   const goToDashboard = () => {
     setConnected(true);
     setTimeout(() => navigate("/dashboard"), 2500);
-  };
-
-  const handleFeedbackSubmit = async ({ stars, comment }) => {
-    await axios.post(`${API_BASE}/feedback`, {
-      stars,
-      comment,
-      studentNumber: username.trim() || undefined,
-    });
-    setShowFeedback(false);
-    setShowConfirm(true);
   };
 
   const handleLogin = async (e) => {
@@ -200,28 +185,7 @@ export default function LoginPage() {
         <p className="text-center text-xs text-gray-400 mt-3">
           By connecting you agree to the BulSU Acceptable Use Policy.
         </p>
-        <div className="mt-3 text-center">
-          <button
-            type="button"
-            onClick={() => setShowFeedback(true)}
-            className="inline-flex items-center gap-1.5 text-xs text-pink-500 hover:text-pink-700 underline underline-offset-2 transition"
-          >
-            <MessageSquare size={13} />
-            Submit a Feedback
-          </button>
-        </div>
       </Card>
-
-      {showFeedback && (
-        <FeedbackModal
-          onSubmit={handleFeedbackSubmit}
-          onCancel={() => setShowFeedback(false)}
-        />
-      )}
-
-      {showConfirm && (
-        <ConfirmModal onClose={() => setShowConfirm(false)} />
-      )}
     </PageBackground>
   );
 }

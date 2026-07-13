@@ -7,6 +7,7 @@ const ACTIONS = {
   BLOCKED: "BLOCKED",
   UNBLOCKED: "UNBLOCKED",
   RESTORE: "RESTORE",
+  RESET_PASSWORD: "RESET_PASSWORD",
 };
 
 async function logAudit(req, { action, target_type = null, target_name = null, description, metadata = null }) {

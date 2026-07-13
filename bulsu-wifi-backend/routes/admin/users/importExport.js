@@ -6,6 +6,7 @@ const ExcelJS = require('exceljs');
 const { logAudit, ACTIONS } = require('../../../utils/auditLog');
 const { styleHeaderCell, buildBrandedWorkbook, sendWorkbook } = require('../../../utils/xlsxBrand');
 const { getSettings } = require('../../../utils/settings');
+const { derivePassword } = require('../../../utils/derivePassword');
 
 const VALID_IMPORT_ROLES = ['student', 'faculty', 'staff'];
 
@@ -256,16 +257,6 @@ router.post('/csv-import', async (req, res) => {
 
     let success = 0, failed = 0;
     const duplicateRows = [];
-
-    const derivePassword = (row) => {
-      const birthDate = row.birth_date?.trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) {
-        const [year, month, day] = birthDate.split('-');
-        const lastName = row.full_name?.split(',')[0]?.trim() || row.student_number;
-        return `${lastName}${year}${month}${day}`;
-      }
-      return row.student_number || 'password123';
-    };
 
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];

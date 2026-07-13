@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as usersApi from "./usersApi";
-import useSelectableSet from "./useSelectableSet";
+import useSelectableSet from "../useSelectableSet";
 
 // Active-user list: state, filters, fetch, and selection for one page of results.
 export default function useUserList({ pageSize }) {

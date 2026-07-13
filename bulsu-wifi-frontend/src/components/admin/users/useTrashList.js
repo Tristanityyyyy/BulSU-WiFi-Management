@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as usersApi from "./usersApi";
-import useSelectableSet from "./useSelectableSet";
+import useSelectableSet from "../useSelectableSet";
 
 // Trashed-user list: state, filters, fetch, and selection. Only fetches while
 // `active` is true (the parent only wants trash data loaded when its tab is shown).

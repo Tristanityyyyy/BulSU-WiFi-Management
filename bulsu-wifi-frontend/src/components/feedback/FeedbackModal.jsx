@@ -7,7 +7,7 @@ import AlertBanner from "../ui/AlertBanner";
 const MAX_COMMENT = 500;
 const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
 
-export default function FeedbackModal({ onSubmit, onCancel }) {
+export default function FeedbackModal({ onSubmit, onCancel, cancelLabel = "Cancel" }) {
   const [stars, setStars] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [comment, setComment] = useState("");
@@ -72,7 +72,7 @@ export default function FeedbackModal({ onSubmit, onCancel }) {
       </div>
 
       <div className="flex gap-3">
-        <Button variant="outline" onClick={handleCancel} disabled={submitting}>Cancel</Button>
+        <Button variant="outline" onClick={handleCancel} disabled={submitting}>{cancelLabel}</Button>
         <Button onClick={handleSubmit} disabled={stars === 0 || submitting}>
           {submitting ? "Submitting…" : "Submit"}
         </Button>
