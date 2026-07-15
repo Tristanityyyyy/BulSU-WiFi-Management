@@ -140,7 +140,9 @@ export default function AdminUsers() {
               <Pencil size={12} />Edit
             </button>
             <button onClick={() => setResetPasswordTarget(u)}
-              className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
+              disabled={!!u.must_change_password}
+              title={u.must_change_password ? "This user already has a default password pending change." : undefined}
+              className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline">
               <KeyRound size={12} />Reset Password
             </button>
             <button onClick={() => setConfirm({ action: "trash-one", userId: u.id, label: `Move ${u.full_name} to trash? They can be restored within 30 days before being permanently deleted.` })}

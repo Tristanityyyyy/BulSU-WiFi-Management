@@ -25,7 +25,11 @@ router.post("/", async (req, res) => {
     const auth = req.headers.authorization;
     if (auth?.startsWith("Bearer ")) {
       try {
-        const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET);
+        // This route only uses the token to attribute the feedback to an account —
+        // it never grants access to anything — so a token that's expired by the time
+        // the post-disconnect/expiry feedback prompt is submitted should still count
+        // as identifying the user, as long as its signature is genuine.
+        const payload = jwt.verify(auth.slice(7), process.env.JWT_SECRET, { ignoreExpiration: true });
         const [[user]] = await db.query(
           "SELECT id, student_number, role FROM users WHERE id = ? LIMIT 1",
           [payload.id]

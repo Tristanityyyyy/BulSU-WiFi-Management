@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Chart as ChartJS, CategoryScale, LinearScale,
   BarElement, LineElement, PointElement, Tooltip, Legend,
@@ -8,17 +8,27 @@ import { Star, MessageSquareHeart, Users2, TrendingUp, Trash2, RotateCcw } from 
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import ConfirmDialog from "./ConfirmDialog";
-import useSelectableSet from "./useSelectableSet";
+import useFeedbackList from "./useFeedbackList";
+import useFeedbackTrashList from "./useFeedbackTrashList";
 import { useTheme } from "../../theme";
+import { ROLE_LABELS } from "../../constants/roles";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
 
 const PAGE_SIZE = 20;
-const ROLE_LABELS = { student: "Student", faculty: "Faculty", staff: "Staff", guest: "Guest", unknown: "Unknown" };
 const VIEWS = [
   { key: "active", label: "Active" },
   { key: "trash", label: "Trash" },
 ];
+
+// `dateStr` is a plain "YYYY-MM-DD" calendar date with no timezone of its own —
+// build the Date from local y/m/d components (not `new Date(dateStr)`, which
+// parses as UTC midnight) so the label always matches the date the API sent,
+// regardless of the viewer's timezone offset.
+function formatShortDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 function Stars({ value, size = 14 }) {
   return (
@@ -39,64 +49,21 @@ export default function AdminFeedback() {
   const { theme } = useTheme();
   const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [view, setView] = useState("active");
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [aggregate, setAggregate] = useState(null);
-  const [ratingFilter, setRatingFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const activeSelection = useSelectableSet();
 
-  const [trashRows, setTrashRows] = useState([]);
-  const [trashTotal, setTrashTotal] = useState(0);
-  const [trashPage, setTrashPage] = useState(1);
-  const [trashLoading, setTrashLoading] = useState(true);
-  const trashSelection = useSelectableSet();
+  const {
+    rows, total, page, setPage, loading, aggregate,
+    ratingFilter, setRatingFilter, dateFrom, setDateFrom, dateTo, setDateTo,
+    selection: activeSelection, fetchFeedback,
+  } = useFeedbackList({ pageSize: PAGE_SIZE });
+
+  const {
+    rows: trashRows, total: trashTotal, page: trashPage, setPage: setTrashPage, loading: trashLoading,
+    selection: trashSelection, fetchTrash,
+  } = useFeedbackTrashList({ pageSize: PAGE_SIZE, active: view === "trash" });
 
   const [confirm, setConfirm] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-
-  const fetchFeedback = async (p = page) => {
-    setLoading(true);
-    try {
-      const [fb, agg] = await Promise.all([
-        adminApi.get("/admin/feedback", {
-          params: {
-            page: p,
-            limit: PAGE_SIZE,
-            rating: ratingFilter || undefined,
-            date_from: dateFrom || undefined,
-            date_to: dateTo || undefined,
-          },
-        }),
-        adminApi.get("/admin/feedback/aggregate"),
-      ]);
-      setRows(fb.data.feedback);
-      setTotal(fb.data.total);
-      setAggregate(agg.data);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTrash = async (p = trashPage) => {
-    setTrashLoading(true);
-    try {
-      const res = await adminApi.get("/admin/feedback/trash", { params: { page: p, limit: PAGE_SIZE } });
-      setTrashRows(res.data.feedback);
-      setTrashTotal(res.data.total);
-    } finally {
-      setTrashLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchFeedback(1); setPage(1); activeSelection.clear(); }, [ratingFilter, dateFrom, dateTo]);
-  useEffect(() => { fetchFeedback(page); activeSelection.clear(); }, [page]);
-  useEffect(() => { if (view === "trash") fetchTrash(1); setTrashPage(1); trashSelection.clear(); }, [view]);
-  useEffect(() => { if (view === "trash") fetchTrash(trashPage); trashSelection.clear(); }, [trashPage]);
 
   const applyFilter = (setter) => (e) => { setter(e.target.value); };
 
@@ -110,10 +77,10 @@ export default function AdminFeedback() {
         fetchFeedback(page);
       }
       if (action === "bulk-delete") {
-        const count = activeSelection.selected.size;
-        await adminApi.post("/admin/feedback/bulk-delete", { ids: [...activeSelection.selected] });
+        const res = await adminApi.post("/admin/feedback/bulk-delete", { ids: [...activeSelection.selected] });
+        const moved = res.data.moved;
         activeSelection.clear();
-        setSuccessMessage(`${count} feedback entr${count === 1 ? "y" : "ies"} moved to trash.`);
+        setSuccessMessage(`${moved} feedback entr${moved === 1 ? "y" : "ies"} moved to trash.`);
         fetchFeedback(page);
       }
       if (action === "restore-one") {
@@ -122,10 +89,10 @@ export default function AdminFeedback() {
         fetchTrash(trashPage);
       }
       if (action === "bulk-restore") {
-        const count = trashSelection.selected.size;
-        await adminApi.post("/admin/feedback/bulk-restore", { ids: [...trashSelection.selected] });
+        const res = await adminApi.post("/admin/feedback/bulk-restore", { ids: [...trashSelection.selected] });
+        const restored = res.data.restored;
         trashSelection.clear();
-        setSuccessMessage(`${count} feedback entr${count === 1 ? "y" : "ies"} restored.`);
+        setSuccessMessage(`${restored} feedback entr${restored === 1 ? "y" : "ies"} restored.`);
         fetchTrash(trashPage);
       }
     } catch (err) {
@@ -336,7 +303,7 @@ export default function AdminFeedback() {
             ) : (
               <Line
                 data={{
-                  labels: aggregate.byDate.map((d) => new Date(d.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })),
+                  labels: aggregate.byDate.map((d) => formatShortDate(d.date)),
                   datasets: [{
                     label: "Average rating",
                     data: aggregate.byDate.map((d) => d.average),

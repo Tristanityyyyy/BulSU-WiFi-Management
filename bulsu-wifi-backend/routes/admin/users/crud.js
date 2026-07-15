@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
     if (course_id) { where += ' AND u.course_id = ?'; params.push(course_id); }
     if (section_id) { where += ' AND u.section_id = ?'; params.push(section_id); }
     const [users] = await db.query(
-      `SELECT u.id, u.student_number, u.full_name, u.course_id, u.section_id, u.enrollment_status, u.role, u.status
+      `SELECT u.id, u.student_number, u.full_name, u.course_id, u.section_id, u.enrollment_status, u.role, u.status, u.must_change_password
        FROM users u ${where} ORDER BY u.full_name LIMIT ? OFFSET ?`,
       [...params, Number(limit), Number(offset)]
     );
@@ -112,10 +112,12 @@ router.patch('/:id/reset-password', async (req, res) => {
     if (!(await verifyOwnPassword(req, password))) return res.status(403).json({ message: 'Incorrect password.' });
 
     const [[target]] = await db.query(
-      "SELECT full_name, student_number, birth_date FROM users WHERE id=? AND deleted_at IS NULL AND role != 'admin'",
+      "SELECT full_name, student_number, birth_date, must_change_password FROM users WHERE id=? AND deleted_at IS NULL AND role != 'admin'",
       [req.params.id]
     );
     if (!target) return res.status(404).json({ message: 'User not found.' });
+    if (target.must_change_password)
+      return res.status(409).json({ message: 'This user already has a default password pending change.' });
 
     const newPassword = derivePassword(target);
     const hashed = await bcrypt.hash(newPassword, 10);

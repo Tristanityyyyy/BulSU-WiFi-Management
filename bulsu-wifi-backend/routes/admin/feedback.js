@@ -110,12 +110,12 @@ router.get('/aggregate', async (req, res) => {
     const byRole = byRoleRows.map((r) => ({ role: r.role, average: parseFloat(r.average) || 0, count: r.count }));
 
     const [byDateRows] = await db.query(
-      `SELECT DATE(submitted_at) AS date, AVG(rating) AS average, COUNT(*) AS count
+      `SELECT DATE_FORMAT(submitted_at, '%Y-%m-%d') AS date, AVG(rating) AS average, COUNT(*) AS count
        FROM feedback WHERE deleted_at IS NULL AND submitted_at >= NOW() - INTERVAL 30 DAY
        GROUP BY DATE(submitted_at) ORDER BY date`
     );
     const byDate = byDateRows.map((r) => ({
-      date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : r.date,
+      date: r.date,
       average: parseFloat(r.average) || 0,
       count: r.count,
     }));

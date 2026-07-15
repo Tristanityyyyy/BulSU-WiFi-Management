@@ -25,7 +25,11 @@ router.get("/status", verifyToken, async (req, res) => {
     if (!user) return res.status(401).json({ message: "Account not found." });
 
     const settings = await getSettings([`session_timeout_${user.role}`]);
-    const timeoutMinutes = Number(settings[`session_timeout_${user.role}`]) || DEFAULT_SESSION_TIMEOUT_MIN[user.role] || 120;
+    const configuredRaw = settings[`session_timeout_${user.role}`];
+    const configured = Number(configuredRaw);
+    const timeoutMinutes = configuredRaw !== undefined && Number.isFinite(configured)
+      ? configured
+      : DEFAULT_SESSION_TIMEOUT_MIN[user.role] || 120;
 
     const elapsedSec = Math.floor((Date.now() - new Date(session.login_time).getTime()) / 1000);
     const expiresInSec = Math.max(0, timeoutMinutes * 60 - elapsedSec);

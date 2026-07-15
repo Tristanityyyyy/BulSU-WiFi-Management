@@ -1,8 +1,8 @@
 import { Gauge, Database, Timer, Smartphone } from "lucide-react";
 import SectionCard from "./SectionCard";
+import { ROLE_LABELS } from "../../../constants/roles";
 
 const ROLES = ["student", "faculty", "staff", "guest"];
-const ROLE_LABELS = { student: "Student", faculty: "Faculty", staff: "Staff", guest: "Guest", admin: "Admin" };
 
 function RoleTable({ icon, title, hint, settings, onChange, columns, roles = ROLES }) {
   return (

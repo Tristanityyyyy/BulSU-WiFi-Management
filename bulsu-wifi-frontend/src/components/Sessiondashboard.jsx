@@ -31,6 +31,7 @@ export default function SessionDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const hasWarnedLowData = useRef(false);
   const hasWarnedLowTime = useRef(false);
 
@@ -95,7 +96,12 @@ export default function SessionDashboard() {
     }
   }, []);
 
+  const disconnectingRef = useRef(false);
+
   const finishDisconnect = async () => {
+    if (disconnectingRef.current) return;
+    disconnectingRef.current = true;
+    setDisconnecting(true);
     try {
       await axios.post(`${API_BASE}/session/disconnect`, {}, { headers: { Authorization: `Bearer ${token}` } });
     } catch {
@@ -194,7 +200,9 @@ export default function SessionDashboard() {
           )}
         </div>
 
-        <Button onClick={() => setShowFeedback(true)}>Disconnect</Button>
+        <Button onClick={() => setShowFeedback(true)} disabled={disconnecting}>
+          {disconnecting ? "Disconnecting..." : "Disconnect"}
+        </Button>
 
         <p className="text-center text-xs text-gray-400 mt-4">
           Usage updates every {POLL_INTERVAL_MS / 1000}s. Values may lag slightly behind actual network activity.
