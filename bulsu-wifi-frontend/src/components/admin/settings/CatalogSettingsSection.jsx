@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, GraduationCap, Users2, CalendarRange, Layers, X } from "lucide-react";
+import { Plus, GraduationCap, Users2, CalendarRange, Layers } from "lucide-react";
 import adminApi from "../adminApi";
 import ConfirmDialog from "../ConfirmDialog";
 import SectionCard from "./SectionCard";
+import { CatalogViewRow, CatalogEditRow, CurrentBadge, CurrentSelector } from "./CatalogListRow";
 
 // Courses / sections / school years / semesters tabs — full catalog CRUD. Owns its
 // own edit-form and delete-confirmation state since nothing outside this tab needs it.
@@ -136,8 +137,7 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
             )}
             {(catalog.courses || []).map((course) => (
               editingCourseId === course.id ? (
-                <form key={course.id} onSubmit={handleCourseSubmit}
-                  className="flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
+                <CatalogEditRow key={course.id} className="flex-wrap" onSubmit={handleCourseSubmit} onCancel={cancelCourseEdit} entityLabel="course">
                   <input
                     autoFocus
                     value={courseForm.code}
@@ -151,36 +151,19 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
                     placeholder="Course name"
                     className="flex-1 min-w-[10rem] border border-slate-200 dark:border-wine-800 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
                   />
-                  <div className="flex gap-1 shrink-0">
-                    <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save course">
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" onClick={cancelCourseEdit}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
-                      <X size={13} />
-                    </button>
-                  </div>
-                </form>
+                </CatalogEditRow>
               ) : (
-                <div key={course.id}
-                  className="group flex items-center justify-between rounded-xl px-3 py-2 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
+                <CatalogViewRow key={course.id} entityLabel="course"
+                  onEdit={() => { setEditingCourseId(course.id); setCourseForm({ code: course.code || "", name: course.name === course.code ? "" : (course.name || "") }); }}
+                  onDelete={() => setConfirmDelete({ type: "course", id: course.id, label: `Delete ${course.code || course.name} and all of its sections? This cannot be undone.` })}
+                >
                   <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
                     <span className="font-medium">{course.code}</span>
                     {course.name && course.name !== course.code && (
                       <span className="text-gray-400 dark:text-gray-500 font-normal"> — {course.name}</span>
                     )}
                   </span>
-                  <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button type="button" onClick={() => { setEditingCourseId(course.id); setCourseForm({ code: course.code || "", name: course.name === course.code ? "" : (course.name || "") }); }}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit course">
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" onClick={() => setConfirmDelete({ type: "course", id: course.id, label: `Delete ${course.code || course.name} and all of its sections? This cannot be undone.` })}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete course">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
+                </CatalogViewRow>
               )
             ))}
           </div>
@@ -238,8 +221,7 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
               const course = (catalog.courses || []).find((item) => item.id === section.course_id);
               if (editingSectionId === section.id) {
                 return (
-                  <form key={section.id} onSubmit={handleSectionSubmit}
-                    className="flex items-center gap-2 rounded-xl px-3 py-1.5 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
+                  <CatalogEditRow key={section.id} dense onSubmit={handleSectionSubmit} onCancel={cancelSectionEdit} entityLabel="section">
                     <input
                       autoFocus
                       value={sectionForm.name}
@@ -257,21 +239,14 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
                         <option key={c.id} value={c.id}>{c.code || c.name}</option>
                       ))}
                     </select>
-                    <div className="flex gap-1 shrink-0">
-                      <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save section">
-                        <Pencil size={13} />
-                      </button>
-                      <button type="button" onClick={cancelSectionEdit}
-                        className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
-                        <X size={13} />
-                      </button>
-                    </div>
-                  </form>
+                  </CatalogEditRow>
                 );
               }
               return (
-                <div key={section.id}
-                  className="group flex items-center justify-between rounded-xl px-3 py-1.5 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
+                <CatalogViewRow key={section.id} dense entityLabel="section"
+                  onEdit={() => { setEditingSectionId(section.id); setSectionForm({ name: section.name, course_id: String(section.course_id) }); }}
+                  onDelete={() => setConfirmDelete({ type: "section", id: section.id, label: `Delete section ${section.name}? This cannot be undone.` })}
+                >
                   <div className="flex items-center gap-2 min-w-0">
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{section.name}</p>
                     <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-wine-800 text-slate-500 dark:text-gray-400 shrink-0">
@@ -281,17 +256,7 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
                       <span className="text-xs text-gray-400 dark:text-gray-500 truncate" title={course.name}>{course.name}</span>
                     )}
                   </div>
-                  <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button type="button" onClick={() => { setEditingSectionId(section.id); setSectionForm({ name: section.name, course_id: String(section.course_id) }); }}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit section">
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" onClick={() => setConfirmDelete({ type: "section", id: section.id, label: `Delete section ${section.name}? This cannot be undone.` })}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete section">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
+                </CatalogViewRow>
               );
             })}
           </div>
@@ -318,29 +283,19 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
               </button>
             </form>
           )}
-          <div className="mt-3">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              Current school year (used for CSV imports)
-              <select
-                value={settings?.current_school_year_id || ""}
-                onChange={(e) => onSettingsChange("current_school_year_id", e.target.value)}
-                className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-              >
-                <option value="">Not set</option>
-                {(catalog.school_years || []).map((sy) => (
-                  <option key={sy.id} value={sy.id}>{sy.name}</option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <CurrentSelector
+            label="Current school year (used for CSV imports)"
+            value={settings?.current_school_year_id}
+            onChange={(value) => onSettingsChange("current_school_year_id", value)}
+            options={catalog.school_years || []}
+          />
           <div className="mt-3 space-y-1.5">
             {(catalog.school_years || []).length === 0 && (
               <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">No school years yet — add your first school year above.</p>
             )}
             {(catalog.school_years || []).map((schoolYear) => (
               editingSchoolYearId === schoolYear.id ? (
-                <form key={schoolYear.id} onSubmit={handleSchoolYearSubmit}
-                  className="flex items-start gap-2 rounded-xl px-3 py-2 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
+                <CatalogEditRow key={schoolYear.id} alignStart onSubmit={handleSchoolYearSubmit} onCancel={cancelSchoolYearEdit} entityLabel="school year">
                   <div className="flex-1 min-w-0">
                     <input
                       autoFocus
@@ -352,36 +307,17 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
                     />
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Will save as: {schoolYearForm.name || "—"}</p>
                   </div>
-                  <div className="flex gap-1 shrink-0">
-                    <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save school year">
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" onClick={cancelSchoolYearEdit}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
-                      <X size={13} />
-                    </button>
-                  </div>
-                </form>
+                </CatalogEditRow>
               ) : (
-                <div key={schoolYear.id}
-                  className="group flex items-center justify-between rounded-xl px-3 py-2 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
+                <CatalogViewRow key={schoolYear.id} entityLabel="school year"
+                  onEdit={() => { setEditingSchoolYearId(schoolYear.id); setSchoolYearForm({ name: schoolYear.name || "" }); }}
+                  onDelete={() => setConfirmDelete({ type: "school_year", id: schoolYear.id, label: `Delete school year ${schoolYear.name}? This cannot be undone.` })}
+                >
                   <span className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
                     {schoolYear.name}
-                    {String(schoolYear.id) === String(settings?.current_school_year_id) && (
-                      <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-300 border border-pink-100 dark:border-pink-900 shrink-0">Current</span>
-                    )}
+                    {String(schoolYear.id) === String(settings?.current_school_year_id) && <CurrentBadge />}
                   </span>
-                  <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button type="button" onClick={() => { setEditingSchoolYearId(schoolYear.id); setSchoolYearForm({ name: schoolYear.name || "" }); }}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit school year">
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" onClick={() => setConfirmDelete({ type: "school_year", id: schoolYear.id, label: `Delete school year ${schoolYear.name}? This cannot be undone.` })}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete school year">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
+                </CatalogViewRow>
               )
             ))}
           </div>
@@ -404,29 +340,19 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
               </button>
             </form>
           )}
-          <div className="mt-3">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              Current semester (used for CSV imports)
-              <select
-                value={settings?.current_semester_id || ""}
-                onChange={(e) => onSettingsChange("current_semester_id", e.target.value)}
-                className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-              >
-                <option value="">Not set</option>
-                {(catalog.semesters || []).map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <CurrentSelector
+            label="Current semester (used for CSV imports)"
+            value={settings?.current_semester_id}
+            onChange={(value) => onSettingsChange("current_semester_id", value)}
+            options={catalog.semesters || []}
+          />
           <div className="mt-3 space-y-1.5">
             {(catalog.semesters || []).length === 0 && (
               <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">No semesters yet — add your first semester above.</p>
             )}
             {(catalog.semesters || []).map((semester) => (
               editingSemesterId === semester.id ? (
-                <form key={semester.id} onSubmit={handleSemesterSubmit}
-                  className="flex items-center gap-2 rounded-xl px-3 py-2 border border-pink-300 dark:border-pink-800 bg-pink-50/60 dark:bg-pink-950/30 ring-1 ring-pink-200 dark:ring-pink-900">
+                <CatalogEditRow key={semester.id} onSubmit={handleSemesterSubmit} onCancel={cancelSemesterEdit} entityLabel="semester">
                   <input
                     autoFocus
                     value={semesterForm.name}
@@ -434,36 +360,17 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
                     placeholder="Semester"
                     className="flex-1 min-w-0 border border-slate-200 dark:border-wine-800 rounded-lg px-2.5 py-1.5 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
                   />
-                  <div className="flex gap-1 shrink-0">
-                    <button type="submit" className="p-1.5 rounded-lg text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/50 transition" aria-label="Save semester">
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" onClick={cancelSemesterEdit}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-slate-100 dark:hover:bg-wine-800/40 transition" aria-label="Cancel edit">
-                      <X size={13} />
-                    </button>
-                  </div>
-                </form>
+                </CatalogEditRow>
               ) : (
-                <div key={semester.id}
-                  className="group flex items-center justify-between rounded-xl px-3 py-2 border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition">
+                <CatalogViewRow key={semester.id} entityLabel="semester"
+                  onEdit={() => { setEditingSemesterId(semester.id); setSemesterForm({ name: semester.name || "" }); }}
+                  onDelete={() => setConfirmDelete({ type: "semester", id: semester.id, label: `Delete semester ${semester.name}? This cannot be undone.` })}
+                >
                   <span className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
                     {semester.name}
-                    {String(semester.id) === String(settings?.current_semester_id) && (
-                      <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-300 border border-pink-100 dark:border-pink-900 shrink-0">Current</span>
-                    )}
+                    {String(semester.id) === String(settings?.current_semester_id) && <CurrentBadge />}
                   </span>
-                  <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button type="button" onClick={() => { setEditingSemesterId(semester.id); setSemesterForm({ name: semester.name || "" }); }}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label="Edit semester">
-                      <Pencil size={13} />
-                    </button>
-                    <button type="button" onClick={() => setConfirmDelete({ type: "semester", id: semester.id, label: `Delete semester ${semester.name}? This cannot be undone.` })}
-                      className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label="Delete semester">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
+                </CatalogViewRow>
               )
             ))}
           </div>

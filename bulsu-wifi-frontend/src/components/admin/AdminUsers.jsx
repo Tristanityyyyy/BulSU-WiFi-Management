@@ -11,6 +11,7 @@ import useUserList from "./users/useUserList";
 import useTrashList from "./users/useTrashList";
 import UserFilterBar from "./users/UserFilterBar";
 import AdminTable from "./AdminTable";
+import SelectAllHeader from "./SelectAllHeader";
 import ConfirmDialog from "./ConfirmDialog";
 
 const PAGE_SIZE = 20;
@@ -89,10 +90,7 @@ export default function AdminUsers() {
 
   const allOnPageSelected = userList.users.length > 0 && userList.users.every((u) => userList.selection.selected.has(u.id));
   const columns = [
-    { render: () => (
-        <input type="checkbox" checked={allOnPageSelected} onChange={() => userList.selection.toggleAllOnPage(userList.users)}
-          className="rounded border-gray-300" aria-label="Select all on this page" />
-      ) },
+    { render: () => <SelectAllHeader checked={allOnPageSelected} onChange={() => userList.selection.toggleAllOnPage(userList.users)} /> },
     "Student No.", "Name", "Course/Section", "Enrollment", "Status", "Actions",
   ];
   const rows = userList.users.map((u) => {
@@ -157,10 +155,7 @@ export default function AdminUsers() {
 
   const trashAllOnPageSelected = trashList.trashUsers.length > 0 && trashList.trashUsers.every((u) => trashList.selection.selected.has(u.id));
   const trashColumns = [
-    { render: () => (
-        <input type="checkbox" checked={trashAllOnPageSelected} onChange={() => trashList.selection.toggleAllOnPage(trashList.trashUsers)}
-          className="rounded border-gray-300" aria-label="Select all on this page" />
-      ) },
+    { render: () => <SelectAllHeader checked={trashAllOnPageSelected} onChange={() => trashList.selection.toggleAllOnPage(trashList.trashUsers)} /> },
     "Student No.", "Name", "Role", "Deleted On", "Days Remaining", "Actions",
   ];
   const trashRows = trashList.trashUsers.map((u) => (

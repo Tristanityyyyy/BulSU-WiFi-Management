@@ -7,6 +7,7 @@ import { Bar, Line } from "react-chartjs-2";
 import { Star, MessageSquareHeart, Users2, TrendingUp, Trash2, RotateCcw } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
+import SelectAllHeader from "./SelectAllHeader";
 import ConfirmDialog from "./ConfirmDialog";
 import useFeedbackList from "./useFeedbackList";
 import useFeedbackTrashList from "./useFeedbackTrashList";
@@ -43,6 +44,72 @@ function Stars({ value, size = 14 }) {
       ))}
     </span>
   );
+}
+
+// One feedback row, shared by the active and trash tables — they differ only in which
+// date they show (submitted vs. deleted) and which single action is offered (delete vs. restore).
+function FeedbackRow({ feedback, selected, onToggleSelect, dateValue, action }) {
+  const submittedBy = feedback.user_full_name || feedback.guest_name;
+  return (
+    <>
+      <td className="px-4 py-2 align-top">
+        <input type="checkbox" checked={selected} onChange={onToggleSelect}
+          className="rounded border-gray-300" aria-label={`Select feedback #${feedback.id}`} />
+      </td>
+      <td className="px-4 py-2 whitespace-nowrap align-top"><Stars value={feedback.rating} /></td>
+      <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm whitespace-nowrap align-top">
+        {submittedBy || <span className="text-gray-300 dark:text-wine-700">—</span>}
+      </td>
+      <td className="px-4 py-2 whitespace-nowrap align-top">
+        {feedback.role ? (
+          <span className="text-xs font-medium text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-900 rounded-full px-2 py-0.5">
+            {ROLE_LABELS[feedback.role] || feedback.role}
+          </span>
+        ) : (
+          <span className="text-gray-300 dark:text-wine-700">—</span>
+        )}
+      </td>
+      <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap break-words">
+        {feedback.comment ?? <span className="text-gray-300 dark:text-wine-700">—</span>}
+      </td>
+      <td className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-top">{new Date(dateValue).toLocaleString()}</td>
+      <td className="px-4 py-2 align-top">
+        <button onClick={action.onClick} className={`inline-flex items-center gap-1 text-xs hover:underline ${action.colorClass}`}>
+          <action.Icon size={12} />{action.label}
+        </button>
+      </td>
+    </>
+  );
+}
+
+// Tooltip + scale config shared by the "by role" bar chart and the "trend" line chart —
+// they only differ in how each looks up the response count behind a given data point.
+function buildRatingChartOptions(isDark, countAt) {
+  return {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: isDark ? "#40202f" : "#1e293b",
+        padding: 10,
+        cornerRadius: 8,
+        callbacks: {
+          label: (ctx) => {
+            const count = countAt(ctx.dataIndex) ?? 0;
+            return `${ctx.parsed.y.toFixed(1)} avg (${count} response${count === 1 ? "" : "s"})`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: isDark ? "#9ca3af" : "#64748b" } },
+      y: {
+        beginAtZero: true, max: 5,
+        ticks: { stepSize: 1, color: isDark ? "#9ca3af" : "#64748b" },
+        grid: { color: isDark ? "#40202f" : "#f1f5f9" },
+      },
+    },
+  };
 }
 
 export default function AdminFeedback() {
@@ -105,85 +172,45 @@ export default function AdminFeedback() {
 
   const allOnPageSelected = rows.length > 0 && rows.every((f) => activeSelection.selected.has(f.id));
   const columns = [
-    { render: () => (
-        <input type="checkbox" checked={allOnPageSelected} onChange={() => activeSelection.toggleAllOnPage(rows)}
-          className="rounded border-gray-300" aria-label="Select all on this page" />
-      ) },
+    { render: () => <SelectAllHeader checked={allOnPageSelected} onChange={() => activeSelection.toggleAllOnPage(rows)} /> },
     "Rating", "Submitted By", "Role", "Comment", "Submitted At", "Actions",
   ];
-  const tableRows = rows.map((f) => {
-    const submittedBy = f.user_full_name || f.guest_name;
-    return (
-      <>
-        <td className="px-4 py-2 align-top">
-          <input type="checkbox" checked={activeSelection.selected.has(f.id)} onChange={() => activeSelection.toggle(f.id)}
-            className="rounded border-gray-300" aria-label={`Select feedback #${f.id}`} />
-        </td>
-        <td className="px-4 py-2 whitespace-nowrap align-top"><Stars value={f.rating} /></td>
-        <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm whitespace-nowrap align-top">
-          {submittedBy || <span className="text-gray-300 dark:text-wine-700">—</span>}
-        </td>
-        <td className="px-4 py-2 whitespace-nowrap align-top">
-          {f.role ? (
-            <span className="text-xs font-medium text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-900 rounded-full px-2 py-0.5">
-              {ROLE_LABELS[f.role] || f.role}
-            </span>
-          ) : (
-            <span className="text-gray-300 dark:text-wine-700">—</span>
-          )}
-        </td>
-        <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap break-words">{f.comment ?? <span className="text-gray-300 dark:text-wine-700">—</span>}</td>
-        <td className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-top">{new Date(f.submitted_at).toLocaleString()}</td>
-        <td className="px-4 py-2 align-top">
-          <button onClick={() => setConfirm({ action: "delete-one", id: f.id, label: "Move this feedback to trash?" })}
-            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline">
-            <Trash2 size={12} />Delete
-          </button>
-        </td>
-      </>
-    );
-  });
+  const tableRows = rows.map((f) => (
+    <FeedbackRow
+      key={f.id}
+      feedback={f}
+      selected={activeSelection.selected.has(f.id)}
+      onToggleSelect={() => activeSelection.toggle(f.id)}
+      dateValue={f.submitted_at}
+      action={{
+        Icon: Trash2,
+        label: "Delete",
+        colorClass: "text-red-600 dark:text-red-400",
+        onClick: () => setConfirm({ action: "delete-one", id: f.id, label: "Move this feedback to trash?" }),
+      }}
+    />
+  ));
 
   const trashAllOnPageSelected = trashRows.length > 0 && trashRows.every((f) => trashSelection.selected.has(f.id));
   const trashColumns = [
-    { render: () => (
-        <input type="checkbox" checked={trashAllOnPageSelected} onChange={() => trashSelection.toggleAllOnPage(trashRows)}
-          className="rounded border-gray-300" aria-label="Select all on this page" />
-      ) },
+    { render: () => <SelectAllHeader checked={trashAllOnPageSelected} onChange={() => trashSelection.toggleAllOnPage(trashRows)} /> },
     "Rating", "Submitted By", "Role", "Comment", "Deleted On", "Actions",
   ];
-  const trashTableRows = trashRows.map((f) => {
-    const submittedBy = f.user_full_name || f.guest_name;
-    return (
-      <>
-        <td className="px-4 py-2 align-top">
-          <input type="checkbox" checked={trashSelection.selected.has(f.id)} onChange={() => trashSelection.toggle(f.id)}
-            className="rounded border-gray-300" aria-label={`Select feedback #${f.id}`} />
-        </td>
-        <td className="px-4 py-2 whitespace-nowrap align-top"><Stars value={f.rating} /></td>
-        <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm whitespace-nowrap align-top">
-          {submittedBy || <span className="text-gray-300 dark:text-wine-700">—</span>}
-        </td>
-        <td className="px-4 py-2 whitespace-nowrap align-top">
-          {f.role ? (
-            <span className="text-xs font-medium text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-900 rounded-full px-2 py-0.5">
-              {ROLE_LABELS[f.role] || f.role}
-            </span>
-          ) : (
-            <span className="text-gray-300 dark:text-wine-700">—</span>
-          )}
-        </td>
-        <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap break-words">{f.comment ?? <span className="text-gray-300 dark:text-wine-700">—</span>}</td>
-        <td className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-top">{new Date(f.deleted_at).toLocaleString()}</td>
-        <td className="px-4 py-2 align-top">
-          <button onClick={() => setConfirm({ action: "restore-one", id: f.id, label: "Restore this feedback?" })}
-            className="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-300 hover:underline">
-            <RotateCcw size={12} />Restore
-          </button>
-        </td>
-      </>
-    );
-  });
+  const trashTableRows = trashRows.map((f) => (
+    <FeedbackRow
+      key={f.id}
+      feedback={f}
+      selected={trashSelection.selected.has(f.id)}
+      onToggleSelect={() => trashSelection.toggle(f.id)}
+      dateValue={f.deleted_at}
+      action={{
+        Icon: RotateCcw,
+        label: "Restore",
+        colorClass: "text-green-700 dark:text-green-300",
+        onClick: () => setConfirm({ action: "restore-one", id: f.id, label: "Restore this feedback?" }),
+      }}
+    />
+  ));
 
   const responseCount = aggregate?.total ?? 0;
   const distribution = aggregate?.distribution ?? {};
@@ -263,31 +290,7 @@ export default function AdminFeedback() {
                     maxBarThickness: 40,
                   }],
                 }}
-                options={{
-                  responsive: true,
-                  plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                      backgroundColor: isDark ? "#40202f" : "#1e293b",
-                      padding: 10,
-                      cornerRadius: 8,
-                      callbacks: {
-                        label: (ctx) => {
-                          const count = aggregate.byRole[ctx.dataIndex]?.count ?? 0;
-                          return `${ctx.parsed.y.toFixed(1)} avg (${count} response${count === 1 ? "" : "s"})`;
-                        },
-                      },
-                    },
-                  },
-                  scales: {
-                    x: { grid: { display: false }, ticks: { color: isDark ? "#9ca3af" : "#64748b" } },
-                    y: {
-                      beginAtZero: true, max: 5,
-                      ticks: { stepSize: 1, color: isDark ? "#9ca3af" : "#64748b" },
-                      grid: { color: isDark ? "#40202f" : "#f1f5f9" },
-                    },
-                  },
-                }}
+                options={buildRatingChartOptions(isDark, (i) => aggregate.byRole[i]?.count)}
               />
             )}
           </div>
@@ -316,31 +319,7 @@ export default function AdminFeedback() {
                     fill: true,
                   }],
                 }}
-                options={{
-                  responsive: true,
-                  plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                      backgroundColor: isDark ? "#40202f" : "#1e293b",
-                      padding: 10,
-                      cornerRadius: 8,
-                      callbacks: {
-                        label: (ctx) => {
-                          const count = aggregate.byDate[ctx.dataIndex]?.count ?? 0;
-                          return `${ctx.parsed.y.toFixed(1)} avg (${count} response${count === 1 ? "" : "s"})`;
-                        },
-                      },
-                    },
-                  },
-                  scales: {
-                    x: { grid: { display: false }, ticks: { color: isDark ? "#9ca3af" : "#64748b" } },
-                    y: {
-                      beginAtZero: true, max: 5,
-                      ticks: { stepSize: 1, color: isDark ? "#9ca3af" : "#64748b" },
-                      grid: { color: isDark ? "#40202f" : "#f1f5f9" },
-                    },
-                  },
-                }}
+                options={buildRatingChartOptions(isDark, (i) => aggregate.byDate[i]?.count)}
               />
             )}
           </div>
