@@ -13,7 +13,8 @@ const { startTrashPurgeSweeper } = require("./jobs/userTrashPurge");
 
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173" }));
+const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173,http://192.168.88.5:5173").split(",");
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
