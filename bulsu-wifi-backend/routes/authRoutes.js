@@ -5,11 +5,18 @@ const jwt = require("jsonwebtoken");
 const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
 const { getSettings } = require("../utils/settings");
+const { endSession } = require("../utils/sessions");
+const { grantAccess } = require("../utils/routeros");
 
 // Fallback values used until the admin actually saves Settings at least once
 // (the `settings` table only ever holds keys that were explicitly saved).
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
 const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240, staff: 240, admin: 240 };
+
+// Roles this account/day-based data cap applies to. Guests have their own
+// per-QR data_limit_gb mechanism (guestRoutes.js); admin has no client-facing
+// usage dashboard, so neither is metered/capped here.
+const CAPPED_ROLES = ["student", "faculty", "staff"];
 
 // POST /api/auth/login
 router.post("/login", async (req, res) => {
@@ -26,6 +33,34 @@ router.post("/login", async (req, res) => {
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ message: "Invalid username or password." });
 
+    // Daily data-cap check: without this, an account already cut off by the
+    // usage meter could just log back in immediately and get a fresh MikroTik
+    // grant before the next sweep notices. A cap of 0/unset means unlimited.
+    if (CAPPED_ROLES.includes(user.role)) {
+      const capSettings = await getSettings([`data_cap_gb_${user.role}`]);
+      const capGb = Number(capSettings[`data_cap_gb_${user.role}`]);
+      if (capGb > 0) {
+        const [[usage]] = await db.query(
+          "SELECT bytes_used FROM data_usage WHERE user_id=? AND usage_date=CURDATE()",
+          [user.id]
+        );
+        if ((usage?.bytes_used || 0) >= capGb * 1024 ** 3) {
+          return res.status(403).json({ message: "Daily data limit reached. Access resumes tomorrow." });
+        }
+      }
+    }
+
+    // A new login from an IP that already holds an active session for this account
+    // is treated as the same device reconnecting, not a new device — end the old
+    // session before counting/enforcing the device limit below.
+    const [supersedeTargets] = await db.query(
+      "SELECT id FROM sessions WHERE user_id=? AND ip_address=? AND status='active'",
+      [user.id, req.ip]
+    );
+    for (const s of supersedeTargets) {
+      await endSession(s.id, { reason: "superseded" });
+    }
+
     // Device policy: reject the login outright once the account is at its device limit.
     // A session only counts against the limit while it's still within that role's
     // timeout window — past that it's stale and doesn't hold a slot, even if no
@@ -41,15 +76,39 @@ router.post("/login", async (req, res) => {
       [user.id, timeoutMinutes]
     );
     if (activeCount >= maxDevices) {
-      return res.status(403).json({
-        message: `Device limit reached (${maxDevices}). Log out from another device first.`,
-      });
+      if (maxDevices === 1) {
+        // Single-device roles: logging in from a new device switches the account
+        // over instead of being blocked — end the old device's session rather
+        // than rejecting this login. The data allocation is per-account, not
+        // per-device, so nothing needs to be transferred.
+        const [switchTargets] = await db.query(
+          "SELECT id FROM sessions WHERE user_id=? AND status='active'",
+          [user.id]
+        );
+        for (const s of switchTargets) {
+          await endSession(s.id, { reason: "auto_logout_device_switch" });
+        }
+      } else {
+        return res.status(403).json({
+          message: `Device limit reached (${maxDevices}). Log out from another device first.`,
+        });
+      }
     }
 
     const [session] = await db.query(
       "INSERT INTO sessions (user_id, ip_address, login_time, status) VALUES (?, ?, NOW(), 'active')",
       [user.id, req.ip]
     );
+
+    if (CAPPED_ROLES.includes(user.role)) {
+      const granted = await grantAccess(req.ip, session.insertId);
+      if (granted) {
+        await db.query(
+          "INSERT INTO active_queues (session_id, user_id, ip_address, queue_id, last_bytes) VALUES (?,?,?,?,0)",
+          [session.insertId, user.id, req.ip, granted.queueId]
+        );
+      }
+    }
 
     const token = jwt.sign(
       { id: user.id, role: user.role, sessionId: session.insertId },

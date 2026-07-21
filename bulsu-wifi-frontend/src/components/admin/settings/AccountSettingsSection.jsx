@@ -8,7 +8,7 @@ import SectionCard from "./SectionCard";
 // My Account tab — fetches its own data lazily since it isn't shown on first load.
 export default function AccountSettingsSection() {
   const [loading, setLoading] = useState(true);
-  const [accountForm, setAccountForm] = useState({ full_name: "", student_number: "", current_password: "", confirm_current_password: "", new_password: "", confirm_password: "" });
+  const [accountForm, setAccountForm] = useState({ full_name: "", student_number: "", current_password: "", new_password: "", confirm_password: "" });
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountError, setAccountError] = useState("");
   const [accountSuccess, setAccountSuccess] = useState("");
@@ -23,10 +23,6 @@ export default function AccountSettingsSection() {
   const handleAccountSubmit = async (e) => {
     e.preventDefault();
     setAccountError("");
-    if (accountForm.current_password !== accountForm.confirm_current_password) {
-      setAccountError("Current password confirmation does not match.");
-      return;
-    }
     if (accountForm.new_password && accountForm.new_password !== accountForm.confirm_password) {
       setAccountError("New password and confirmation do not match.");
       return;
@@ -39,7 +35,7 @@ export default function AccountSettingsSection() {
         current_password: accountForm.current_password,
         new_password: accountForm.new_password || undefined,
       });
-      setAccountForm((prev) => ({ ...prev, current_password: "", confirm_current_password: "", new_password: "", confirm_password: "" }));
+      setAccountForm((prev) => ({ ...prev, current_password: "", new_password: "", confirm_password: "" }));
       setAccountSuccess("Account updated successfully.");
     } catch (err) {
       setAccountError(err.response?.data?.message || "Failed to update account.");
@@ -79,13 +75,6 @@ export default function AccountSettingsSection() {
           <input type={showPasswords ? "text" : "password"} value={accountForm.current_password}
             onChange={(e) => setAccountForm((prev) => ({ ...prev, current_password: e.target.value }))}
             placeholder="Required to save changes"
-            className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400" required />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Confirm Current Password</label>
-          <input type={showPasswords ? "text" : "password"} value={accountForm.confirm_current_password}
-            onChange={(e) => setAccountForm((prev) => ({ ...prev, confirm_current_password: e.target.value }))}
-            placeholder="Re-type your current password"
             className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400" required />
         </div>
         <div>

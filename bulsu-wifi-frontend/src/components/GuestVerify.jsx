@@ -4,7 +4,7 @@ import axios from "axios";
 import { Wifi, CheckCircle2, Clock, XCircle, User } from "lucide-react";
 import FeedbackModal from "./feedback/FeedbackModal";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+import { API_BASE } from "../config/api";
 
 // Flow: checking (is the QR token valid?) -> form (name entry) ->
 // connecting (submitting) -> success / expired / error

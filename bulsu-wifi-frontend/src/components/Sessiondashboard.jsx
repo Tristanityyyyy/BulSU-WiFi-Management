@@ -7,7 +7,7 @@ import LoadingSpinner from "./ui/LoadingSpinner";
 import WifiIcon from "./ui/WifiIcon";
 import FeedbackModal from "./feedback/FeedbackModal";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+import { API_BASE } from "../config/api";
 const POLL_INTERVAL_MS = 20000;
 const LOW_DATA_THRESHOLD_MB = 200;
 
@@ -77,7 +77,7 @@ export default function SessionDashboard() {
   }, [secondsLeft != null]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || session.dataLimitMB == null) return; // null = unlimited, nothing to warn about
     const remainingMB = session.dataLimitMB - session.dataUsedMB;
     if (remainingMB <= LOW_DATA_THRESHOLD_MB && !hasWarnedLowData.current) {
       hasWarnedLowData.current = true;
@@ -137,11 +137,12 @@ export default function SessionDashboard() {
     );
   }
 
+  const isUnlimited = session ? session.dataLimitMB == null : false;
   const dataUsedMB = session?.dataUsedMB ?? 0;
-  const dataLimitMB = session?.dataLimitMB ?? 2048;
-  const remainingMB = Math.max(0, dataLimitMB - dataUsedMB);
-  const dataPct = Math.min(100, (dataUsedMB / dataLimitMB) * 100);
-  const isLowData = remainingMB <= LOW_DATA_THRESHOLD_MB;
+  const dataLimitMB = isUnlimited ? null : (session?.dataLimitMB ?? 2048);
+  const remainingMB = isUnlimited ? null : Math.max(0, dataLimitMB - dataUsedMB);
+  const dataPct = isUnlimited ? 100 : Math.min(100, (dataUsedMB / dataLimitMB) * 100);
+  const isLowData = !isUnlimited && remainingMB <= LOW_DATA_THRESHOLD_MB;
   const isLowTime = secondsLeft != null && secondsLeft <= 300;
 
   const radius = 54;
@@ -179,8 +180,12 @@ export default function SessionDashboard() {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <WifiIcon size={22} color={ringColor} />
-              <p className="text-lg font-bold text-gray-900 mt-1 font-display tabular-nums">{formatData(remainingMB)}</p>
-              <p className="text-[11px] text-gray-400">left of {formatData(dataLimitMB)}</p>
+              <p className="text-lg font-bold text-gray-900 mt-1 font-display tabular-nums">
+                {isUnlimited ? "Unlimited" : formatData(remainingMB)}
+              </p>
+              <p className="text-[11px] text-gray-400">
+                {isUnlimited ? "data allowance" : `left of ${formatData(dataLimitMB)}`}
+              </p>
             </div>
           </div>
           {isLowData && (

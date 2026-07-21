@@ -24,6 +24,8 @@ export default function useTrashList({ pageSize, active }) {
       });
       setTrashUsers(res.data.users);
       setTrashTotal(res.data.total);
+    } catch (err) {
+      console.error("Failed to fetch trash:", err);
     } finally {
       setTrashLoading(false);
     }

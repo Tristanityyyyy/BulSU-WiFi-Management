@@ -104,8 +104,8 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
       {activeSection === "datacap" && (
         <RoleTable
           icon={<Database size={16} />}
-          title="Data Cap per Session"
-          hint="Data allowance per session — 0 means unlimited."
+          title="Data Cap per Day"
+          hint="Data allowance per account, per day — 0 means unlimited."
           settings={settings}
           onChange={onChange}
           columns={[

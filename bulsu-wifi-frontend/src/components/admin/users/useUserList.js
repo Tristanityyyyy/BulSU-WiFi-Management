@@ -25,6 +25,8 @@ export default function useUserList({ pageSize }) {
       });
       setUsers(res.data.users);
       setTotal(res.data.total);
+    } catch (err) {
+      console.error("Failed to fetch users:", err);
     } finally {
       setLoading(false);
     }

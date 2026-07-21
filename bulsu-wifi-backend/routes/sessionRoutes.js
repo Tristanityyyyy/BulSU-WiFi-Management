@@ -3,13 +3,12 @@ const router = express.Router();
 const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
 const { getSettings } = require("../utils/settings");
+const { endSession } = require("../utils/sessions");
 
 const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240, staff: 240, admin: 240 };
-const DEFAULT_DATA_LIMIT_MB = 2048;
 
 // GET /api/session/status — polled by the dashboard to drive the time-remaining
-// countdown and low-data warning. There's no real bandwidth metering in this system
-// yet, so dataUsedMB/dataLimitMB are static placeholders, not measured usage.
+// countdown, low-data warning, and the data-usage ring.
 router.get("/status", verifyToken, async (req, res) => {
   try {
     const [[session]] = await db.query(
@@ -24,7 +23,7 @@ router.get("/status", verifyToken, async (req, res) => {
     );
     if (!user) return res.status(401).json({ message: "Account not found." });
 
-    const settings = await getSettings([`session_timeout_${user.role}`]);
+    const settings = await getSettings([`session_timeout_${user.role}`, `data_cap_gb_${user.role}`]);
     const configuredRaw = settings[`session_timeout_${user.role}`];
     const configured = Number(configuredRaw);
     const timeoutMinutes = configuredRaw !== undefined && Number.isFinite(configured)
@@ -34,11 +33,19 @@ router.get("/status", verifyToken, async (req, res) => {
     const elapsedSec = Math.floor((Date.now() - new Date(session.login_time).getTime()) / 1000);
     const expiresInSec = Math.max(0, timeoutMinutes * 60 - elapsedSec);
 
+    const [[usage]] = await db.query(
+      "SELECT bytes_used FROM data_usage WHERE user_id=? AND usage_date=CURDATE()",
+      [req.user.id]
+    );
+    const capGb = Number(settings[`data_cap_gb_${user.role}`]);
+    const dataUsedMB = Math.round((usage?.bytes_used || 0) / (1024 * 1024));
+    const dataLimitMB = capGb > 0 ? capGb * 1024 : null; // null = unlimited
+
     res.json({
       username: user.student_number,
       expiresInSec,
-      dataUsedMB: 0,
-      dataLimitMB: DEFAULT_DATA_LIMIT_MB,
+      dataUsedMB,
+      dataLimitMB,
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to load session status." });
@@ -52,10 +59,7 @@ router.get("/status", verifyToken, async (req, res) => {
 router.post("/disconnect", verifyToken, async (req, res) => {
   try {
     if (req.user.sessionId) {
-      await db.query(
-        "UPDATE sessions SET status='ended', logout_time=NOW(), logout_reason='user_logout' WHERE id=? AND status='active'",
-        [req.user.sessionId]
-      );
+      await endSession(req.user.sessionId, { reason: "user_logout" });
     }
     res.json({ ok: true });
   } catch (err) {

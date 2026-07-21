@@ -1,20 +1,40 @@
 const db = require('../db');
 const { logAudit, ACTIONS } = require('./auditLog');
+const { revokeAccess } = require('./routeros');
+
+// Single source of truth for ending an active session — updates the row and
+// revokes any MikroTik access grant tied to it (via active_queues). Callers
+// that need audit logging (admin-triggered endings) do that themselves with
+// the returned session; system-triggered endings (device-switch, hitting the
+// daily data cap) just don't call logAudit, matching prior behavior.
+async function endSession(sessionId, { reason, status = 'ended' } = {}) {
+  const [[session]] = await db.query(
+    `SELECT s.id, s.ip_address, u.full_name FROM sessions s LEFT JOIN users u ON s.user_id = u.id
+     WHERE s.id=? AND s.status='active'`,
+    [sessionId]
+  );
+  if (!session) return null;
+
+  await db.query(
+    `UPDATE sessions SET status=?, logout_time=NOW(), logout_reason=? WHERE id=?`,
+    [status, reason, sessionId]
+  );
+
+  const [[queue]] = await db.query('SELECT queue_id FROM active_queues WHERE session_id=?', [sessionId]);
+  if (queue) {
+    await revokeAccess(session.ip_address, queue.queue_id);
+    await db.query('DELETE FROM active_queues WHERE session_id=?', [sessionId]);
+  }
+
+  return session;
+}
 
 // Single source of truth for ending an active session — both the Users-table
 // shortcut and the Sessions-page action call this instead of each running
 // their own UPDATE/audit-log pair.
 async function forceDisconnectSession(req, sessionId) {
-  const [[session]] = await db.query(
-    `SELECT s.id, u.full_name FROM sessions s LEFT JOIN users u ON s.user_id = u.id
-     WHERE s.id=? AND s.status='active'`,
-    [sessionId]
-  );
+  const session = await endSession(sessionId, { reason: 'force_disconnect', status: 'force-disconnected' });
   if (!session) return null;
-  await db.query(
-    `UPDATE sessions SET status='force-disconnected', logout_time=NOW(), logout_reason='force_disconnect' WHERE id=?`,
-    [sessionId]
-  );
   await logAudit(req, {
     action: ACTIONS.UPDATE,
     target_type: 'user',
@@ -44,4 +64,4 @@ async function forceDisconnectGuestSession(req, guestSessionId) {
   return session;
 }
 
-module.exports = { forceDisconnectSession, forceDisconnectGuestSession };
+module.exports = { endSession, forceDisconnectSession, forceDisconnectGuestSession };

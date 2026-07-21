@@ -10,6 +10,7 @@ const feedbackRoutes = require("./routes/feedbackRoutes");
 const sessionRoutes = require("./routes/sessionRoutes");
 const { startGuestExpirySweeper } = require("./jobs/guestExpiry");
 const { startTrashPurgeSweeper } = require("./jobs/userTrashPurge");
+const { startDataUsageMeter } = require("./jobs/dataUsageMeter");
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use("/api/session", sessionRoutes);
 
 startGuestExpirySweeper();
 startTrashPurgeSweeper();
+startDataUsageMeter();
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
