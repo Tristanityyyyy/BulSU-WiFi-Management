@@ -6,6 +6,14 @@ import FeedbackModal from "./feedback/FeedbackModal";
 
 import { API_BASE } from "../config/api";
 
+const STATUS_POLL_MS = 20000;
+
+function formatData(mb) {
+  if (mb == null) return "Unlimited";
+  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
+  return `${Math.round(mb)} MB`;
+}
+
 // Flow: checking (is the QR token valid?) -> form (name entry) ->
 // connecting (submitting) -> success / expired / error
 export default function GuestVerify() {
@@ -19,6 +27,8 @@ export default function GuestVerify() {
   const [expiresAt, setExpiresAt] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [dataUsedMb, setDataUsedMb] = useState(0);
+  const [dataLimitMb, setDataLimitMb] = useState(null);
 
   // Step 1: on load, check the token is real and not expired/used yet.
   // This does NOT create a session or consume the token.
@@ -86,6 +96,38 @@ export default function GuestVerify() {
     }, 1000);
     return () => clearInterval(interval);
   }, [expiresAt]);
+
+  // Once connected, poll the server so the screen reflects reality: the session
+  // can end early server-side (data cap reached, or an admin force-disconnect),
+  // which the local countdown alone would never show. Also surfaces live usage.
+  useEffect(() => {
+    if (status !== "success") return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/guest/session-status`, { params: { token } });
+        if (!active) return;
+        setDataUsedMb(Math.round((res.data.bytesUsed || 0) / (1024 * 1024)));
+        setDataLimitMb(res.data.dataLimitMb ?? null);
+        if (res.data.status && res.data.status !== "active") {
+          setMessage(
+            res.data.status === "data_limit"
+              ? "You've reached the data limit for this guest pass."
+              : "Your guest session has ended."
+          );
+          setShowFeedback(true);
+        }
+      } catch {
+        // ignore transient poll errors — next tick retries
+      }
+    };
+    poll();
+    const id = setInterval(poll, STATUS_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [status, token]);
 
   const handleFeedbackSubmit = async ({ stars, comment }) => {
     try {
@@ -172,6 +214,13 @@ export default function GuestVerify() {
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Session expires in</p>
                 <p className="text-2xl font-bold text-wine-800 font-mono tabular-nums">{countdown}</p>
                 <p className="text-xs text-gray-400 mt-1">You will be disconnected automatically.</p>
+                <div className="mt-3 pt-3 border-t border-pink-100">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">Data used</p>
+                  <p className="text-sm font-semibold text-wine-800 tabular-nums">
+                    {formatData(dataUsedMb)}
+                    {dataLimitMb != null && <span className="font-normal text-gray-400"> of {formatData(dataLimitMb)}</span>}
+                  </p>
+                </div>
               </div>
             )}
           </div>

@@ -1,7 +1,7 @@
 const db = require("../db");
 const { getSettings } = require("../utils/settings");
 const { readQueueBytes, grantAccess, ENABLED } = require("../utils/routeros");
-const { endSession } = require("../utils/sessions");
+const { endSession, endGuestSession } = require("../utils/sessions");
 
 const GB = 1024 * 1024 * 1024;
 const CAPPED_ROLES = ["student", "faculty", "staff"];
@@ -74,10 +74,55 @@ async function enforceDailyCaps() {
   }
 }
 
+// Guests are metered on the same tick, but against a different model: usage
+// accrues on the guest_session itself (not a per-day data_usage row) and the cap
+// is the QR's own total `data_limit_gb`, not a per-role daily cap. Both accrual
+// and cutoff happen together per session, since a guest has exactly one queue.
+async function meterAndCapGuests() {
+  const [rows] = await db.query(
+    `SELECT gs.id, gs.ip_address, gs.queue_id, gs.last_bytes, gs.bytes_used, g.data_limit_gb
+       FROM guest_sessions gs
+       JOIN guests g ON g.id = gs.guest_id
+      WHERE gs.status = 'active' AND gs.queue_id IS NOT NULL`
+  );
+
+  for (const row of rows) {
+    const bytes = await readQueueBytes(row.queue_id);
+    if (bytes === undefined) continue; // router unreachable this cycle — retry next tick
+
+    if (bytes === null) {
+      // Queue vanished (e.g. removed by hand in WinBox) — self-heal like students.
+      const recreated = await grantAccess(row.ip_address, row.id, "guest");
+      if (recreated) {
+        await db.query(
+          "UPDATE guest_sessions SET queue_id=?, last_bytes=0 WHERE id=?",
+          [recreated.queueId, row.id]
+        );
+      }
+      continue;
+    }
+
+    // Counter lower than last seen => queue recreated / router rebooted: treat
+    // the current value as the delta rather than a bogus negative (matches meterActiveQueues).
+    const delta = bytes >= row.last_bytes ? bytes - row.last_bytes : bytes;
+    const bytesUsed = Number(row.bytes_used) + (delta > 0 ? delta : 0);
+    await db.query(
+      "UPDATE guest_sessions SET bytes_used=?, last_bytes=? WHERE id=?",
+      [bytesUsed, bytes, row.id]
+    );
+
+    const capGb = Number(row.data_limit_gb);
+    if (capGb > 0 && bytesUsed >= capGb * GB) {
+      await endGuestSession(row.id, { status: "data_limit" });
+    }
+  }
+}
+
 async function runDataUsageMeter() {
   if (!ENABLED) return;
   await meterActiveQueues();
   await enforceDailyCaps();
+  await meterAndCapGuests();
 }
 
 function startDataUsageMeter(intervalMs = 2 * 60 * 1000) {

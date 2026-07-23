@@ -44,17 +44,29 @@ async function forceDisconnectSession(req, sessionId) {
   return session;
 }
 
-async function forceDisconnectGuestSession(req, guestSessionId) {
+// Guest-side equivalent of endSession: ends an active guest_session and revokes
+// its MikroTik grant (queue + ip-binding) via the queue_id stored on the row.
+// guest_sessions has no logout_reason column — the reason is carried by `status`
+// (e.g. 'timeout', 'data_limit', 'force-disconnected', 'ended').
+async function endGuestSession(guestSessionId, { status = 'ended' } = {}) {
   const [[session]] = await db.query(
-    `SELECT id, guest_name FROM guest_sessions WHERE id=? AND status='active'`,
+    `SELECT id, guest_name, ip_address, queue_id FROM guest_sessions WHERE id=? AND status='active'`,
     [guestSessionId]
   );
   if (!session) return null;
-  // guest_sessions has no logout_reason column — only `sessions` does.
+
+  if (session.queue_id) await revokeAccess(session.ip_address, session.queue_id);
+
   await db.query(
-    `UPDATE guest_sessions SET status='force-disconnected', logout_time=NOW() WHERE id=?`,
-    [guestSessionId]
+    `UPDATE guest_sessions SET status=?, logout_time=NOW(), queue_id=NULL WHERE id=?`,
+    [status, guestSessionId]
   );
+  return session;
+}
+
+async function forceDisconnectGuestSession(req, guestSessionId) {
+  const session = await endGuestSession(guestSessionId, { status: 'force-disconnected' });
+  if (!session) return null;
   await logAudit(req, {
     action: ACTIONS.UPDATE,
     target_type: 'guest',
@@ -64,4 +76,4 @@ async function forceDisconnectGuestSession(req, guestSessionId) {
   return session;
 }
 
-module.exports = { endSession, forceDisconnectSession, forceDisconnectGuestSession };
+module.exports = { endSession, endGuestSession, forceDisconnectSession, forceDisconnectGuestSession };

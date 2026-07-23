@@ -27,9 +27,14 @@ async function withConnection(fn) {
 // Queue. Returns { queueId } on success, or null on ANY failure (router
 // unreachable, auth failure, etc.) — callers must treat null as "couldn't
 // grant right now" and must never let it block login.
-async function grantAccess(ip, sessionId) {
+//
+// `kind` namespaces the router tag so student sessions and guest sessions —
+// whose ids are separate integer sequences — can't collide on the same
+// `session-<id>` queue name. Defaults to "session" so existing callers are
+// unaffected; the guest flow passes "guest".
+async function grantAccess(ip, id, kind = "session") {
   if (!ENABLED) return null;
-  const tag = `${TAG_PREFIX}session-${sessionId}`;
+  const tag = `${TAG_PREFIX}${kind}-${id}`;
   try {
     return await withConnection(async (conn) => {
       if (ACCESS_MODE === "hotspot_ip_binding") {
