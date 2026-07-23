@@ -36,19 +36,21 @@ export default function UserFilterBar({
         <select value={enrollment} onChange={(e) => onEnrollmentChange(e.target.value)} className={selectClass}>
           <option value="">All Enrollment</option>
           <option value="enrolled">Enrolled</option>
-          <option value="not_enrolled">Not Enrolled</option>
+          <option value="dropped">Dropped</option>
+          <option value="loa">LOA</option>
+          <option value="graduated">Graduated</option>
         </select>
       )}
       <select value={course} onChange={(e) => onCourseChange(e.target.value)} className={selectClass}>
         <option value="">All Courses</option>
-        {(catalog.courses || []).map((c) => (
+        {(catalog.courses || []).filter((c) => c.status !== "inactive").map((c) => (
           <option key={c.id} value={c.id}>{c.code || c.name}</option>
         ))}
       </select>
       <select value={section} onChange={(e) => onSectionChange(e.target.value)} disabled={!course}
         className={`${selectClass} disabled:bg-gray-100 dark:disabled:bg-wine-800 disabled:cursor-not-allowed`}>
         <option value="">All Sections</option>
-        {(catalog.sections || []).filter((s) => String(s.course_id) === String(course)).map((s) => (
+        {(catalog.sections || []).filter((s) => String(s.course_id) === String(course) && s.status !== "inactive").map((s) => (
           <option key={s.id} value={s.id}>{s.name}</option>
         ))}
       </select>

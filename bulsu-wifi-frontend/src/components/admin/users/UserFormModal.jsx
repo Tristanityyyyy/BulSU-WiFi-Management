@@ -5,22 +5,6 @@ import Modal from "../../ui/Modal";
 
 const USER_ROLES = ["student", "faculty", "staff"];
 
-const MONTHS = [
-  { value: "01", label: "January" }, { value: "02", label: "February" }, { value: "03", label: "March" },
-  { value: "04", label: "April" }, { value: "05", label: "May" }, { value: "06", label: "June" },
-  { value: "07", label: "July" }, { value: "08", label: "August" }, { value: "09", label: "September" },
-  { value: "10", label: "October" }, { value: "11", label: "November" }, { value: "12", label: "December" },
-];
-
-// Newest-year-first, spanning students through older faculty/staff.
-const BIRTH_YEARS = Array.from({ length: 101 }, (_, i) => String(new Date().getFullYear() - i));
-
-// Leap-year-aware day count for a given year/month (both as zero-padded strings, or "").
-function daysInMonth(year, month) {
-  if (!year || !month) return 31;
-  return new Date(Number(year), Number(month), 0).getDate();
-}
-
 // Best-effort split of a stored "Last, First Middle" string back into the three
 // fields — only used to seed Edit mode, since older records were free-typed and
 // the First/Middle boundary is inherently ambiguous (e.g. a two-word first name).
@@ -50,18 +34,12 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
   const [error, setError] = useState("");
 
   const isStudentRole = form.role === "student";
-  const sectionOptions = (sections || []).filter((section) => String(section.course_id) === String(form.course_id));
-
-  const [birthYear, birthMonth, birthDay] = form.birthdate ? form.birthdate.split("-") : ["", "", ""];
-  const maxDay = daysInMonth(birthYear, birthMonth);
-
-  // Combines the three pieces into one "YYYY-MM-DD" string (form.birthdate stays the single
-  // source of truth everywhere else — derivedPassword, the submit payload, etc.), clamping the
-  // day down if switching month/year makes the previously-picked day impossible (e.g. 31 -> Feb).
-  const updateBirthdate = (year, month, day) => {
-    const clampedDay = day && Number(day) > daysInMonth(year, month) ? String(daysInMonth(year, month)).padStart(2, "0") : day;
-    setForm((prev) => ({ ...prev, birthdate: year && month && clampedDay ? `${year}-${month}-${clampedDay}` : "" }));
-  };
+  // Only active catalog entries can be assigned; archived ones are hidden here
+  // (they still resolve for display elsewhere via the full catalog).
+  const activeCourses = (courses || []).filter((course) => course.status !== "inactive");
+  const sectionOptions = (sections || []).filter(
+    (section) => String(section.course_id) === String(form.course_id) && section.status !== "inactive"
+  );
 
   const handleCourseChange = (courseId) => {
     setForm({ ...form, course_id: courseId, section_id: "" });
@@ -174,7 +152,7 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
                 <select value={form.course_id} onChange={(e) => handleCourseChange(e.target.value)}
                   className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:bg-gray-100 dark:disabled:bg-wine-800 disabled:cursor-not-allowed" disabled={!isStudentRole}>
                   <option value="">Select course</option>
-                  {(courses || []).map((course) => (
+                  {activeCourses.map((course) => (
                     <option key={course.id} value={course.id}>{course.code || course.name}</option>
                   ))}
                 </select>
@@ -195,7 +173,6 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
                   <select value={form.enrollment_status} onChange={(e) => setForm({ ...form, enrollment_status: e.target.value })}
                     className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
                     <option value="enrolled">Enrolled</option>
-                    <option value="not_enrolled">Not Enrolled</option>
                   </select>
                 </div>
               )}
@@ -205,25 +182,9 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
           {!user && (
             <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Birthdate</label>
-              <div className="flex gap-2">
-                <select value={birthYear} onChange={(e) => updateBirthdate(e.target.value, birthMonth, birthDay)} required
-                  className="flex-1 min-w-0 border border-pink-200 dark:border-pink-900 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
-                  <option value="" disabled>Year</option>
-                  {BIRTH_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
-                <select value={birthMonth} onChange={(e) => updateBirthdate(birthYear, e.target.value, birthDay)} required
-                  className="flex-1 min-w-0 border border-pink-200 dark:border-pink-900 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
-                  <option value="" disabled>Month</option>
-                  {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-                <select value={birthDay} onChange={(e) => updateBirthdate(birthYear, birthMonth, e.target.value)} required
-                  className="w-20 shrink-0 border border-pink-200 dark:border-pink-900 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400">
-                  <option value="" disabled>Day</option>
-                  {Array.from({ length: maxDay }, (_, i) => String(i + 1).padStart(2, "0")).map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
+              <input type="date" value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
+                max={new Date().toISOString().split("T")[0]} required
+                className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" />
               {derivedPassword && (
                 <div className="mt-2 bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2">
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Generated password</p>

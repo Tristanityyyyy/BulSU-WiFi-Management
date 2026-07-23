@@ -4,10 +4,24 @@ const bcrypt = require('bcrypt');
 const { logAudit, ACTIONS } = require('../../utils/auditLog');
 const { verifyOwnPassword } = require('../../utils/verifyOwnPassword');
 
+// A catalog entry referenced by any user (incl. soft-deleted) or by the permanent
+// enrollment_history is archived rather than hard-deleted, so those references
+// never dangle. `usersCol`/`historyCol` are fixed internal column names, not input.
+async function countCatalogRefs(usersCol, historyCol, id) {
+  const [[u]] = await db.query(`SELECT COUNT(*) AS c FROM users WHERE ${usersCol} = ?`, [id]);
+  const [[h]] = await db.query(`SELECT COUNT(*) AS c FROM enrollment_history WHERE ${historyCol} = ?`, [id]);
+  return u.c + h.c;
+}
+
+async function isCurrentTerm(settingKey, id) {
+  const [[row]] = await db.query('SELECT value FROM settings WHERE `key` = ?', [settingKey]);
+  return row != null && Number(row.value) === Number(id);
+}
+
 // school_years and semesters are both plain "name + status" lookups with duplicate-name
-// protection — registers create/update/delete for one such table so the two entities
-// below don't repeat identical route bodies that differ only in table/label.
-function registerNamedCatalogRoutes({ basePath, table, targetType, label }) {
+// protection — registers create/update/delete/reactivate for one such table so the two
+// entities below don't repeat identical route bodies that differ only in table/label.
+function registerNamedCatalogRoutes({ basePath, table, targetType, label, usersRefColumn, currentSettingKey }) {
   const capitalizedLabel = label.charAt(0).toUpperCase() + label.slice(1);
 
   router.post(basePath, async (req, res) => {
@@ -50,36 +64,97 @@ function registerNamedCatalogRoutes({ basePath, table, targetType, label }) {
     }
   });
 
+  // Delete always archives (soft-delete) so nothing is ever silently lost. The
+  // Archived view offers Restore, or an explicit permanent-delete below.
   router.delete(`${basePath}/:id`, async (req, res) => {
     try {
-      const [[row]] = await db.query(`SELECT name FROM ${table} WHERE id = ?`, [Number(req.params.id)]);
-      await db.query(`DELETE FROM ${table} WHERE id = ?`, [Number(req.params.id)]);
+      const id = Number(req.params.id);
+      const [[row]] = await db.query(`SELECT name FROM ${table} WHERE id = ?`, [id]);
       const rowLabel = row?.name || `Unknown ${label}`;
+
+      // Never archive the term currently set as active — it would dangle the setting
+      // and break imports/transitions.
+      if (currentSettingKey && (await isCurrentTerm(currentSettingKey, id))) {
+        return res.status(400).json({ message: `Can't delete the current ${label}. Change the current ${label} in Settings first.` });
+      }
+
+      await db.query(`UPDATE ${table} SET status = 'inactive' WHERE id = ?`, [id]);
       await logAudit(req, {
         action: ACTIONS.DELETE,
         target_type: targetType,
         target_name: rowLabel,
-        description: `Deleted ${label} ${rowLabel}`,
+        description: `Archived ${label} ${rowLabel}`,
       });
-      res.json({ ok: true });
+      res.json({ ok: true, archived: true });
     } catch (err) {
       res.status(500).json({ message: `Failed to delete ${label}.` });
     }
   });
+
+  // Permanent (hard) delete — only allowed when nothing references it and it isn't
+  // the current term; otherwise it stays archived so records never dangle.
+  router.delete(`${basePath}/:id/permanent`, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [[row]] = await db.query(`SELECT name FROM ${table} WHERE id = ?`, [id]);
+      const rowLabel = row?.name || `Unknown ${label}`;
+
+      if (currentSettingKey && (await isCurrentTerm(currentSettingKey, id))) {
+        return res.status(400).json({ message: `Can't delete the current ${label}. Change the current ${label} in Settings first.` });
+      }
+      const refs = await countCatalogRefs(usersRefColumn, usersRefColumn, id);
+      if (refs > 0) {
+        return res.status(400).json({ message: `Can't permanently delete this ${label} — ${refs} student(s)/record(s) still reference it. It stays archived.` });
+      }
+
+      await db.query(`DELETE FROM ${table} WHERE id = ?`, [id]);
+      await logAudit(req, {
+        action: ACTIONS.DELETE,
+        target_type: targetType,
+        target_name: rowLabel,
+        description: `Permanently deleted ${label} ${rowLabel}`,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ message: `Failed to permanently delete ${label}.` });
+    }
+  });
+
+  router.patch(`${basePath}/:id/reactivate`, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [[row]] = await db.query(`SELECT name FROM ${table} WHERE id = ?`, [id]);
+      await db.query(`UPDATE ${table} SET status = 'active' WHERE id = ?`, [id]);
+      await logAudit(req, {
+        action: ACTIONS.UPDATE,
+        target_type: targetType,
+        target_name: row?.name || `Unknown ${label}`,
+        description: `Reactivated ${label} ${row?.name || ''}`.trim(),
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ message: `Failed to reactivate ${label}.` });
+    }
+  });
 }
 
+// Returns ALL catalog rows (active + archived) with their status. Archived
+// entries must be included because this feeds the Users-table name resolution —
+// a student still in an archived section must keep showing its name. Frontend
+// selection dropdowns filter to active themselves. Import/transition use the
+// separate active-only fetchActiveCatalog, so they never offer archived entries.
 const getCatalogSettings = async () => {
   const [courses] = await db.query(
-    "SELECT id, code, name, status FROM courses WHERE status = 'active' ORDER BY code"
+    "SELECT id, code, name, status FROM courses ORDER BY (status='active') DESC, code"
   );
   const [sections] = await db.query(
-    "SELECT id, course_id, name, year_level, status FROM sections WHERE status = 'active' ORDER BY course_id, name"
+    "SELECT id, course_id, name, year_level, status FROM sections ORDER BY (status='active') DESC, course_id, name"
   );
   const [school_years] = await db.query(
-    "SELECT id, name, status FROM school_years WHERE status = 'active' ORDER BY name"
+    "SELECT id, name, status FROM school_years ORDER BY (status='active') DESC, name"
   );
   const [semesters] = await db.query(
-    "SELECT id, name, status FROM semesters WHERE status = 'active' ORDER BY name"
+    "SELECT id, name, status FROM semesters ORDER BY (status='active') DESC, name"
   );
   return { courses, sections, school_years, semesters };
 };
@@ -153,22 +228,77 @@ router.put('/catalog/courses/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/settings/catalog/courses/:id
+// DELETE /api/admin/settings/catalog/courses/:id — always archives (cascades to sections).
 router.delete('/catalog/courses/:id', async (req, res) => {
   try {
-    const [[course]] = await db.query('SELECT code, name FROM courses WHERE id = ?', [Number(req.params.id)]);
-    await db.query('DELETE FROM sections WHERE course_id = ?', [Number(req.params.id)]);
-    await db.query('DELETE FROM courses WHERE id = ?', [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    const [[course]] = await db.query('SELECT code, name FROM courses WHERE id = ?', [id]);
     const label = course?.code || course?.name || 'Unknown course';
+
+    await db.query("UPDATE courses SET status = 'inactive' WHERE id = ?", [id]);
+    await db.query("UPDATE sections SET status = 'inactive' WHERE course_id = ?", [id]);
     await logAudit(req, {
       action: ACTIONS.DELETE,
       target_type: 'course',
       target_name: label,
-      description: `Deleted course ${label} and its sections`,
+      description: `Archived course ${label} and its sections`,
+    });
+    res.json({ ok: true, archived: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete course.' });
+  }
+});
+
+// DELETE /api/admin/settings/catalog/courses/:id/permanent — hard delete when unused.
+router.delete('/catalog/courses/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [[course]] = await db.query('SELECT code, name FROM courses WHERE id = ?', [id]);
+    const label = course?.code || course?.name || 'Unknown course';
+
+    // A course counts references from itself OR any of its sections.
+    const courseRefs = await countCatalogRefs('course_id', 'course_id', id);
+    const [[secRef]] = await db.query(
+      `SELECT (SELECT COUNT(*) FROM users u JOIN sections s ON s.id = u.section_id WHERE s.course_id = ?)
+            + (SELECT COUNT(*) FROM enrollment_history eh JOIN sections s ON s.id = eh.section_id WHERE s.course_id = ?) AS c`,
+      [id, id]
+    );
+    const refs = courseRefs + secRef.c;
+    if (refs > 0) {
+      return res.status(400).json({ message: `Can't permanently delete this course — ${refs} student(s)/record(s) still reference it or its sections. It stays archived.` });
+    }
+
+    await db.query('DELETE FROM sections WHERE course_id = ?', [id]);
+    await db.query('DELETE FROM courses WHERE id = ?', [id]);
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'course',
+      target_name: label,
+      description: `Permanently deleted course ${label} and its sections`,
     });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to delete course.' });
+    res.status(500).json({ message: 'Failed to permanently delete course.' });
+  }
+});
+
+// PATCH /api/admin/settings/catalog/courses/:id/reactivate
+router.patch('/catalog/courses/:id/reactivate', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [[course]] = await db.query('SELECT code, name FROM courses WHERE id = ?', [id]);
+    await db.query("UPDATE courses SET status = 'active' WHERE id = ?", [id]);
+    await db.query("UPDATE sections SET status = 'active' WHERE course_id = ?", [id]);
+    const label = course?.code || course?.name || 'Unknown course';
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'course',
+      target_name: label,
+      description: `Reactivated course ${label} and its sections`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to reactivate course.' });
   }
 });
 
@@ -221,21 +351,66 @@ router.put('/catalog/sections/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/settings/catalog/sections/:id
+// DELETE /api/admin/settings/catalog/sections/:id — always archives.
 router.delete('/catalog/sections/:id', async (req, res) => {
   try {
-    const [[section]] = await db.query('SELECT name FROM sections WHERE id = ?', [Number(req.params.id)]);
-    await db.query('DELETE FROM sections WHERE id = ?', [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    const [[section]] = await db.query('SELECT name FROM sections WHERE id = ?', [id]);
     const label = section?.name || 'Unknown section';
+
+    await db.query("UPDATE sections SET status = 'inactive' WHERE id = ?", [id]);
     await logAudit(req, {
       action: ACTIONS.DELETE,
       target_type: 'section',
       target_name: label,
-      description: `Deleted section ${label}`,
+      description: `Archived section ${label}`,
+    });
+    res.json({ ok: true, archived: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete section.' });
+  }
+});
+
+// DELETE /api/admin/settings/catalog/sections/:id/permanent — hard delete when unused.
+router.delete('/catalog/sections/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [[section]] = await db.query('SELECT name FROM sections WHERE id = ?', [id]);
+    const label = section?.name || 'Unknown section';
+
+    const refs = await countCatalogRefs('section_id', 'section_id', id);
+    if (refs > 0) {
+      return res.status(400).json({ message: `Can't permanently delete this section — ${refs} student(s)/record(s) still reference it. It stays archived.` });
+    }
+
+    await db.query('DELETE FROM sections WHERE id = ?', [id]);
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'section',
+      target_name: label,
+      description: `Permanently deleted section ${label}`,
     });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to delete section.' });
+    res.status(500).json({ message: 'Failed to permanently delete section.' });
+  }
+});
+
+// PATCH /api/admin/settings/catalog/sections/:id/reactivate
+router.patch('/catalog/sections/:id/reactivate', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [[section]] = await db.query('SELECT name FROM sections WHERE id = ?', [id]);
+    await db.query("UPDATE sections SET status = 'active' WHERE id = ?", [id]);
+    await logAudit(req, {
+      action: ACTIONS.UPDATE,
+      target_type: 'section',
+      target_name: section?.name || 'Unknown section',
+      description: `Reactivated section ${section?.name || ''}`.trim(),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to reactivate section.' });
   }
 });
 
@@ -244,6 +419,8 @@ registerNamedCatalogRoutes({
   table: 'school_years',
   targetType: 'school_year',
   label: 'school year',
+  usersRefColumn: 'school_year_id',
+  currentSettingKey: 'current_school_year_id',
 });
 
 registerNamedCatalogRoutes({
@@ -251,6 +428,8 @@ registerNamedCatalogRoutes({
   table: 'semesters',
   targetType: 'semester',
   label: 'semester',
+  usersRefColumn: 'semester_id',
+  currentSettingKey: 'current_semester_id',
 });
 
 // PUT /api/admin/settings

@@ -158,7 +158,7 @@ router.get('/csv-template', async (req, res) => {
         ['2024002', 'Santos, Maria Clara', '2005-11-12', firstCourse?.code || '', courseSections[1]?.name || courseSections[0]?.name || '', 'enrolled'],
       ],
       dataValidations: [
-        { column: 'F', fromRow: 4, toRow: 500, formulae: ['"enrolled,not_enrolled"'] },
+        { column: 'F', fromRow: 4, toRow: 500, formulae: ['"enrolled"'] },
       ],
       extraSheets: [buildCatalogReferenceSheet(courses, sections)],
     });
@@ -286,7 +286,10 @@ router.post('/csv-import', async (req, res) => {
             section_id,
             currentSchoolYearId,
             currentSemesterId,
-            row.enrollment_status?.trim() || null,
+            // A blank enrollment cell defaults to 'enrolled' for students (an
+            // imported student is enrolled unless stated otherwise). Faculty/staff
+            // templates have no enrollment column, so they stay null.
+            row.enrollment_status?.trim() || (role === 'student' ? 'enrolled' : null),
             role,
             'active',
             passwordHash,

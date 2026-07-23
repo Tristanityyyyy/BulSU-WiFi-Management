@@ -18,6 +18,12 @@ const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240, staff: 240, ad
 // usage dashboard, so neither is metered/capped here.
 const CAPPED_ROLES = ["student", "faculty", "staff"];
 
+// Enrollment states that revoke network privilege — a student in one of these
+// cannot log in. They come from a semester transition, which also force-disconnects
+// the student's live session at batch commit; this stops them re-authenticating
+// and getting a fresh RouterOS grant afterward.
+const NO_ACCESS_ENROLLMENT = ["dropped", "loa", "graduated"];
+
 // POST /api/auth/login
 router.post("/login", async (req, res) => {
   const { username, password } = req.body;
@@ -32,6 +38,13 @@ router.post("/login", async (req, res) => {
 
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ message: "Invalid username or password." });
+
+    // A student transitioned out of active enrollment (dropped / LOA / graduated)
+    // keeps their account but loses network access — refuse the login so they
+    // can't re-authenticate after a batch commit force-disconnected them.
+    if (NO_ACCESS_ENROLLMENT.includes(user.enrollment_status)) {
+      return res.status(403).json({ message: "Your enrollment is not active. Contact the registrar." });
+    }
 
     // Daily data-cap check: without this, an account already cut off by the
     // usage meter could just log back in immediately and get a fresh MikroTik
@@ -95,9 +108,14 @@ router.post("/login", async (req, res) => {
       }
     }
 
+    // Snapshot the student's section/term at login so usage reports stay
+    // accurate even after a later semester transition changes their section.
     const [session] = await db.query(
-      "INSERT INTO sessions (user_id, ip_address, login_time, status) VALUES (?, ?, NOW(), 'active')",
-      [user.id, req.ip]
+      `INSERT INTO sessions
+         (user_id, ip_address, login_time, status,
+          snapshot_course_id, snapshot_section_id, snapshot_school_year_id, snapshot_semester_id)
+       VALUES (?, ?, NOW(), 'active', ?, ?, ?, ?)`,
+      [user.id, req.ip, user.course_id, user.section_id, user.school_year_id, user.semester_id]
     );
 
     if (CAPPED_ROLES.includes(user.role)) {

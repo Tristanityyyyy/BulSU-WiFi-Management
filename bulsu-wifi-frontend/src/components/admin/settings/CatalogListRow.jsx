@@ -1,19 +1,36 @@
-import { Pencil, Trash2, X } from "lucide-react";
+import { Pencil, Trash2, X, RotateCcw } from "lucide-react";
+
+// Small "Archived" pill shown next to a soft-deleted catalog entry.
+export function ArchivedBadge() {
+  return (
+    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-wine-800 text-slate-500 dark:text-gray-400 shrink-0">
+      Archived
+    </span>
+  );
+}
 
 // Shared "view mode" row for a catalog list item (course/section/school-year/semester):
 // label content on the left, edit/delete icon buttons on the right, revealed on hover.
 // `entityLabel` (e.g. "course", "school year") drives both button aria-labels.
+// When `archived`, the row is greyed and shows an Unarchive action instead of Edit.
 // `className` is an escape hatch for one-off layout needs a call site has beyond
 // `dense` (e.g. `flex-wrap`) so new variants don't require new boolean props here.
-export function CatalogViewRow({ dense, onEdit, onDelete, entityLabel, className = "", children }) {
+export function CatalogViewRow({ dense, onEdit, onDelete, onReactivate, archived, entityLabel, className = "", children }) {
   return (
-    <div className={`group flex items-center justify-between rounded-xl px-3 ${dense ? "py-1.5" : "py-2"} border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition ${className}`}>
+    <div className={`group flex items-center justify-between rounded-xl px-3 ${dense ? "py-1.5" : "py-2"} border border-slate-100 dark:border-wine-800/70 hover:border-slate-200 dark:hover:border-wine-700 hover:bg-slate-50/60 dark:hover:bg-wine-800/40 transition ${archived ? "opacity-60" : ""} ${className}`}>
       {children}
       <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-        <button type="button" onClick={onEdit}
-          className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label={`Edit ${entityLabel}`}>
-          <Pencil size={13} />
-        </button>
+        {archived ? (
+          <button type="button" onClick={onReactivate}
+            className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/30 transition" aria-label={`Unarchive ${entityLabel}`}>
+            <RotateCcw size={13} />
+          </button>
+        ) : (
+          <button type="button" onClick={onEdit}
+            className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition" aria-label={`Edit ${entityLabel}`}>
+            <Pencil size={13} />
+          </button>
+        )}
         <button type="button" onClick={onDelete}
           className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition" aria-label={`Delete ${entityLabel}`}>
           <Trash2 size={13} />

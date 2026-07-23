@@ -17,6 +17,10 @@ export const permanentDelete = (id, password) => adminApi.delete(`/admin/users/$
 export const bulkPermanentDelete = (ids, password) => adminApi.post("/admin/users/bulk-permanent-delete", { ids, password });
 
 export const checkExisting = (studentNumbers) => adminApi.post("/admin/users/check-existing", { student_numbers: studentNumbers });
+
+export const transitionTemplate = () => adminApi.get("/admin/users/transition/template", { responseType: "blob" });
+export const transitionValidate = (rows) => adminApi.post("/admin/users/transition/validate", { rows });
+export const transitionCommit = (rows) => adminApi.post("/admin/users/transition/commit", { rows });
 export const parseXlsx = (arrayBuffer) =>
   adminApi.post("/admin/users/parse-xlsx", arrayBuffer, { headers: { "Content-Type": "application/octet-stream" } });
 export const csvImport = (rows, role) => adminApi.post("/admin/users/csv-import", { rows, role });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { UserPlus, Upload, Download, ShieldOff, ShieldCheck, Pencil, Trash2, RotateCcw, KeyRound } from "lucide-react";
+import { UserPlus, Upload, Download, ShieldOff, ShieldCheck, Pencil, Trash2, RotateCcw, KeyRound, GraduationCap } from "lucide-react";
 import adminApi from "./adminApi";
 import * as usersApi from "./users/usersApi";
 import UserFormModal from "./users/UserFormModal";
@@ -7,6 +7,9 @@ import PermanentDeleteModal from "./users/PermanentDeleteModal";
 import ResetPasswordModal from "./users/ResetPasswordModal";
 import useCsvImport from "./users/useCsvImport";
 import CsvImportModal from "./users/CsvImportModal";
+import useEnrollmentTransition from "./users/useEnrollmentTransition";
+import EnrollmentTransitionModal from "./users/EnrollmentTransitionModal";
+import SingleTransitionModal from "./users/SingleTransitionModal";
 import useUserList from "./users/useUserList";
 import useTrashList from "./users/useTrashList";
 import UserFilterBar from "./users/UserFilterBar";
@@ -29,6 +32,7 @@ export default function AdminUsers() {
   const trashList = useTrashList({ pageSize: PAGE_SIZE, active: view === "trash" });
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState(null);
+  const [transitionTarget, setTransitionTarget] = useState(null);
   const [bulkPermanentDeleteOpen, setBulkPermanentDeleteOpen] = useState(false);
   const [permanentDeleteError, setPermanentDeleteError] = useState("");
   const [confirm, setConfirm] = useState(null);
@@ -37,10 +41,15 @@ export default function AdminUsers() {
   const [errorMessage, setErrorMessage] = useState("");
   const [catalog, setCatalog] = useState({ courses: [], sections: [] });
   const fileRef = useRef();
+  const transitionFileRef = useRef();
   const csv = useCsvImport({
     catalog,
     onImported: () => userList.fetchUsers(1),
     onReset: () => { if (fileRef.current) fileRef.current.value = ""; },
+  });
+  const transition = useEnrollmentTransition({
+    onCommitted: () => userList.fetchUsers(userList.page),
+    onReset: () => { if (transitionFileRef.current) transitionFileRef.current.value = ""; },
   });
 
   useEffect(() => {
@@ -137,6 +146,12 @@ export default function AdminUsers() {
               className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
               <Pencil size={12} />Edit
             </button>
+            {u.role === "student" && (
+              <button onClick={() => setTransitionTarget(u)}
+                className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
+                <GraduationCap size={12} />Transition
+              </button>
+            )}
             <button onClick={() => setResetPasswordTarget(u)}
               disabled={!!u.must_change_password}
               title={u.must_change_password ? "This user already has a default password pending change." : undefined}
@@ -209,9 +224,20 @@ export default function AdminUsers() {
             className="inline-flex items-center gap-1.5 bg-white dark:bg-wine-900 border border-pink-200 dark:border-pink-900 text-pink-700 dark:text-pink-300 text-xs font-semibold px-4 py-2 rounded-xl shadow hover:bg-pink-50 dark:hover:bg-pink-950/40 transition">
             <Upload size={14} /> Import File
           </button>
+          <div className="inline-flex items-center rounded-xl border border-pink-200 dark:border-pink-900 bg-white dark:bg-wine-900 shadow overflow-hidden">
+            <button onClick={transition.downloadTemplate}
+              className="inline-flex items-center gap-1.5 text-pink-700 dark:text-pink-300 text-xs font-semibold pl-3 pr-2 py-2 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition">
+              <Download size={14} /> Transition Template
+            </button>
+            <button onClick={() => { if (transitionFileRef.current) transitionFileRef.current.value = ""; transitionFileRef.current?.click(); }}
+              className="inline-flex items-center gap-1.5 text-pink-700 dark:text-pink-300 text-xs font-semibold pl-2 pr-4 py-2 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition border-l border-pink-100 dark:border-pink-900/60">
+              <GraduationCap size={14} /> New Semester
+            </button>
+          </div>
         </div>
       </div>
       <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={csv.handleFileSelected} />
+      <input ref={transitionFileRef} type="file" accept=".xlsx" className="hidden" onChange={transition.handleFileSelected} />
 
       {/* Filters */}
       {view === "active" && (
@@ -287,6 +313,19 @@ export default function AdminUsers() {
       )}
 
       <CsvImportModal csv={csv} />
+      <EnrollmentTransitionModal t={transition} />
+      {transitionTarget && (
+        <SingleTransitionModal
+          student={transitionTarget}
+          catalog={catalog}
+          onClose={() => setTransitionTarget(null)}
+          onDone={() => {
+            setTransitionTarget(null);
+            userList.fetchUsers(userList.page);
+            setSuccessMessage("Student transitioned successfully.");
+          }}
+        />
+      )}
 
       {modal && (
         <UserFormModal
