@@ -79,19 +79,28 @@ async function enforceDailyCaps() {
 // is the QR's own total `data_limit_gb`, not a per-role daily cap. Both accrual
 // and cutoff happen together per session, since a guest has exactly one queue.
 async function meterAndCapGuests() {
+  // No `queue_id IS NOT NULL` filter: a session whose grant failed at verify has
+  // a NULL queue_id, and skipping those meant it was never metered, never capped
+  // and never repaired — an unlimited pass showing 0 MB in the UI. It falls into
+  // the same self-heal branch below as a queue that vanished.
   const [rows] = await db.query(
-    `SELECT gs.id, gs.ip_address, gs.queue_id, gs.last_bytes, gs.bytes_used, g.data_limit_gb
+    `SELECT gs.id, gs.ip_address, gs.queue_id, gs.last_bytes, gs.bytes_used,
+            g.data_limit_gb, g.expires_at
        FROM guest_sessions gs
        JOIN guests g ON g.id = gs.guest_id
-      WHERE gs.status = 'active' AND gs.queue_id IS NOT NULL`
+      WHERE gs.status = 'active'`
   );
 
   for (const row of rows) {
-    const bytes = await readQueueBytes(row.queue_id);
+    const bytes = row.queue_id ? await readQueueBytes(row.queue_id) : null;
     if (bytes === undefined) continue; // router unreachable this cycle — retry next tick
 
     if (bytes === null) {
-      // Queue vanished (e.g. removed by hand in WinBox) — self-heal like students.
+      // No queue yet (grant failed at verify) or it vanished (e.g. removed by
+      // hand in WinBox) — self-heal like students. Never for a pass that already
+      // lapsed, though: grantAccess would recreate the bypassed ip-binding too and
+      // hand back access the expiry sweeper just removed.
+      if (new Date(row.expires_at) <= new Date()) continue;
       const recreated = await grantAccess(row.ip_address, row.id, "guest");
       if (recreated) {
         await db.query(
@@ -105,15 +114,22 @@ async function meterAndCapGuests() {
     // Counter lower than last seen => queue recreated / router rebooted: treat
     // the current value as the delta rather than a bogus negative (matches meterActiveQueues).
     const delta = bytes >= row.last_bytes ? bytes - row.last_bytes : bytes;
-    const bytesUsed = Number(row.bytes_used) + (delta > 0 ? delta : 0);
+    // Accrue in SQL, not in JS — a read-modify-write here would silently discard
+    // usage if two ticks ever overlap, under-counting the exact number the cap is
+    // checked against. Same reason the student path uses `bytes_used + VALUES(...)`.
     await db.query(
-      "UPDATE guest_sessions SET bytes_used=?, last_bytes=? WHERE id=?",
-      [bytesUsed, bytes, row.id]
+      "UPDATE guest_sessions SET bytes_used = bytes_used + ?, last_bytes = ? WHERE id = ?",
+      [delta > 0 ? delta : 0, bytes, row.id]
     );
 
     const capGb = Number(row.data_limit_gb);
-    if (capGb > 0 && bytesUsed >= capGb * GB) {
-      await endGuestSession(row.id, { status: "data_limit" });
+    if (capGb > 0) {
+      // Read the stored total back so the cutoff is based on what's committed
+      // rather than the snapshot this tick started with.
+      const [[fresh]] = await db.query("SELECT bytes_used FROM guest_sessions WHERE id=?", [row.id]);
+      if (fresh && Number(fresh.bytes_used) >= capGb * GB) {
+        await endGuestSession(row.id, { status: "data_limit" });
+      }
     }
   }
 }
@@ -126,8 +142,21 @@ async function runDataUsageMeter() {
 }
 
 function startDataUsageMeter(intervalMs = 2 * 60 * 1000) {
-  const run = () =>
-    runDataUsageMeter().catch((err) => console.error("Data usage meter failed:", err));
+  // Every session costs a serial router round-trip (8s timeout), so a tick can
+  // outlast the interval. Skip rather than overlap: concurrent ticks would read
+  // the same queue counter twice and double-accrue the delta.
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      await runDataUsageMeter();
+    } catch (err) {
+      console.error("Data usage meter failed:", err);
+    } finally {
+      running = false;
+    }
+  };
   run();
   const timer = setInterval(run, intervalMs);
   timer.unref?.();

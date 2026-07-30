@@ -1,41 +1,96 @@
 const db = require("../db");
 const { revokeAccess } = require("../utils/routeros");
 
-// Auto-expire guest QR codes once their access window closes.
-// 1. Flip the token itself to 'expired' so the DB matches what every
-//    read-time check already assumes.
-// 2. End any guest session still running past the token's expiry: revoke its
-//    MikroTik grant (queue + ip-binding) and stamp logout_time with the moment
-//    the pass actually expired.
+// Ends every active guest_session whose QR code is no longer valid — either its
+// window closed (expires_at passed) or an admin revoked it early (guests.status
+// flipped to 'expired' while expires_at is still in the future). Pass a guestId
+// to scope this to one code, which is what the admin Revoke endpoint does so the
+// disconnect is immediate instead of waiting for the next sweep.
+//
+// Each session's MikroTik grant is revoked one at a time: a set-based UPDATE
+// alone would leave the queue/ip-binding live on the router. When revokeAccess
+// reports failure we deliberately leave the row 'active' with its queue_id
+// intact — the next sweep re-selects it (the WHERE still matches) and retries.
+// Nulling queue_id there would strand the grant on the device forever.
+//
+// Returns { ended, pending } so callers can tell the admin when the router
+// couldn't be reached.
+async function endLapsedGuestSessions(guestId) {
+  const params = [];
+  let scope = "";
+  if (guestId !== undefined) {
+    scope = " AND g.id = ?";
+    params.push(guestId);
+  }
+
+  const [lapsed] = await db.query(
+    `SELECT gs.id, gs.ip_address, gs.queue_id, g.expires_at, g.status AS guest_status
+       FROM guest_sessions gs
+       JOIN guests g ON g.id = gs.guest_id
+      WHERE gs.status = 'active'
+        AND (g.expires_at <= NOW() OR g.status = 'expired')${scope}`,
+    params
+  );
+
+  let ended = 0;
+  let pending = 0;
+  for (const s of lapsed) {
+    if (s.queue_id) {
+      const revoked = await revokeAccess(s.ip_address, s.queue_id);
+      if (!revoked) {
+        pending++;
+        continue; // router unreachable — leave the row alone so the next sweep retries
+      }
+    }
+
+    // A code that lapsed on its own timed out at expires_at; one an admin cut
+    // short ended just now, so don't back-date it to a future expires_at.
+    const timedOut = new Date(s.expires_at) <= new Date();
+    const status = timedOut ? "timeout" : "force-disconnected";
+    const logoutTime = timedOut ? s.expires_at : new Date();
+
+    // status='active' guard: this row was read before the revoke round-trip, and
+    // the data-usage meter may have ended it as 'data_limit' in between — that's
+    // the real reason and it shouldn't be overwritten.
+    const [res] = await db.query(
+      "UPDATE guest_sessions SET status=?, logout_time=?, queue_id=NULL WHERE id=? AND status='active'",
+      [status, logoutTime, s.id]
+    );
+    if (res.affectedRows) ended++;
+  }
+  return { ended, pending };
+}
+
+// Auto-expire guest QR codes once their access window closes: flip the token
+// itself to 'expired' so the DB matches what every read-time check already
+// assumes, then end any session still running on a lapsed or revoked code.
 async function sweepExpiredGuests() {
   await db.query(
     "UPDATE guests SET status='expired' WHERE status IN ('active','used') AND expires_at <= NOW()"
   );
-
-  // Pull the expiring sessions first so we can revoke each one's router grant —
-  // a set-based UPDATE alone would leave the ip-binding/queue live on the router.
-  const [expiring] = await db.query(
-    `SELECT gs.id, gs.ip_address, gs.queue_id, g.expires_at
-       FROM guest_sessions gs
-       JOIN guests g ON g.id = gs.guest_id
-      WHERE gs.status = 'active' AND g.expires_at <= NOW()`
-  );
-  for (const s of expiring) {
-    if (s.queue_id) await revokeAccess(s.ip_address, s.queue_id);
-    await db.query(
-      "UPDATE guest_sessions SET status='timeout', logout_time=?, queue_id=NULL WHERE id=?",
-      [s.expires_at, s.id]
-    );
-  }
+  return endLapsedGuestSessions();
 }
 
 function startGuestExpirySweeper(intervalMs = 60 * 1000) {
-  const run = () =>
-    sweepExpiredGuests().catch((err) => console.error("Guest expiry sweep failed:", err));
+  // A sweep now makes one router round-trip (8s timeout) per expiring session,
+  // so it can outlast the interval. Skip a tick rather than run two sweeps —
+  // and the admin guest list triggers sweeps too.
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      await sweepExpiredGuests();
+    } catch (err) {
+      console.error("Guest expiry sweep failed:", err);
+    } finally {
+      running = false;
+    }
+  };
   run();
   const timer = setInterval(run, intervalMs);
   timer.unref?.();
   return timer;
 }
 
-module.exports = { sweepExpiredGuests, startGuestExpirySweeper };
+module.exports = { sweepExpiredGuests, endLapsedGuestSessions, startGuestExpirySweeper };

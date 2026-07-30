@@ -199,7 +199,12 @@ export default function AdminGuests() {
     setConfirm(null);
     setActionError("");
     try {
-      if (action === "revoke") await adminApi.patch(`/admin/guests/${id}/revoke`);
+      if (action === "revoke") {
+        const res = await adminApi.patch(`/admin/guests/${id}/revoke`);
+        // The code is revoked either way, but the device may still be online if
+        // the router was unreachable — don't let that pass silently.
+        if (res.data?.warning) setActionError(res.data.warning);
+      }
       if (action === "delete") await adminApi.delete(`/admin/guests/${id}`);
       fetchGuests(page);
     } catch (err) {

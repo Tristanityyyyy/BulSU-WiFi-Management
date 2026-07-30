@@ -48,6 +48,17 @@ async function forceDisconnectSession(req, sessionId) {
 // its MikroTik grant (queue + ip-binding) via the queue_id stored on the row.
 // guest_sessions has no logout_reason column — the reason is carried by `status`
 // (e.g. 'timeout', 'data_limit', 'force-disconnected', 'ended').
+//
+// Returns null if the session isn't active, otherwise the session plus an
+// `ended` flag. `ended: false` means the router was unreachable, so the row is
+// deliberately left 'active' WITH its queue_id — clearing it would strand the
+// live queue/ip-binding on the device with nothing left to revoke it by. The
+// caller either retries (the guest expiry sweeper does, automatically) or tells
+// the admin it didn't take.
+//
+// TODO: the student-side endSession above has the same hole — it deletes the
+// active_queues row even when revokeAccess failed. Left as-is here to keep this
+// change scoped to the guest path; worth fixing the same way.
 async function endGuestSession(guestSessionId, { status = 'ended' } = {}) {
   const [[session]] = await db.query(
     `SELECT id, guest_name, ip_address, queue_id FROM guest_sessions WHERE id=? AND status='active'`,
@@ -55,18 +66,23 @@ async function endGuestSession(guestSessionId, { status = 'ended' } = {}) {
   );
   if (!session) return null;
 
-  if (session.queue_id) await revokeAccess(session.ip_address, session.queue_id);
+  if (session.queue_id) {
+    const revoked = await revokeAccess(session.ip_address, session.queue_id);
+    if (!revoked) return { ...session, ended: false };
+  }
 
   await db.query(
     `UPDATE guest_sessions SET status=?, logout_time=NOW(), queue_id=NULL WHERE id=?`,
     [status, guestSessionId]
   );
-  return session;
+  return { ...session, ended: true };
 }
 
 async function forceDisconnectGuestSession(req, guestSessionId) {
   const session = await endGuestSession(guestSessionId, { status: 'force-disconnected' });
   if (!session) return null;
+  // Router unreachable — don't log an audit entry for a disconnect that didn't happen.
+  if (!session.ended) return session;
   await logAudit(req, {
     action: ACTIONS.UPDATE,
     target_type: 'guest',

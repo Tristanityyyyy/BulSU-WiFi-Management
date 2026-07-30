@@ -18,6 +18,8 @@ router.get("/token-status", async (req, res) => {
     if (!guest) return res.status(404).json({ message: "Invalid QR code." });
 
     if (guest.status === "used") return res.json({ status: "used" });
+    // 'expired' covers both a lapsed window and an admin revoking the code early.
+    if (guest.status === "expired") return res.json({ status: "expired" });
     if (new Date(guest.expires_at) < new Date()) return res.json({ status: "expired" });
     if (new Date(guest.starts_at) > new Date()) return res.json({ status: "not_started", startsAt: guest.starts_at });
 
@@ -42,26 +44,52 @@ router.post("/verify", async (req, res) => {
 
     if (!guest) return res.status(404).json({ message: "Invalid QR code." });
     if (guest.status === "used") return res.status(400).json({ message: "This QR code has already been used." });
+    // An admin can revoke a code while its window is still open — status carries that.
+    if (guest.status === "expired") return res.status(400).json({ message: "This QR code is no longer valid." });
     if (new Date(guest.expires_at) < new Date()) return res.status(400).json({ message: "This QR code has expired." });
     if (new Date(guest.starts_at) > new Date())
       return res.status(400).json({ message: `This QR code is not active yet. It becomes available at ${new Date(guest.starts_at).toLocaleString()}.` });
 
-    await db.query("UPDATE guests SET status = 'used' WHERE id = ?", [guest.id]);
-    const [inserted] = await db.query(
-      "INSERT INTO guest_sessions (guest_id, guest_name, mac_address, ip_address, login_time, status) VALUES (?,?,NULL,?,NOW(),'active')",
-      [guest.id, guestName, req.ip]
+    // Claim the token atomically — the check above is a read, so two near-
+    // simultaneous POSTs (a double-tap on mobile) would both pass it and create
+    // two sessions and two router grants on one IP.
+    const [claim] = await db.query(
+      "UPDATE guests SET status = 'used' WHERE id = ? AND status = 'active'",
+      [guest.id]
     );
-    const guestSessionId = inserted.insertId;
+    if (!claim.affectedRows) return res.status(400).json({ message: "This QR code has already been used." });
+
+    let guestSessionId;
+    try {
+      const [inserted] = await db.query(
+        "INSERT INTO guest_sessions (guest_id, guest_name, mac_address, ip_address, login_time, status) VALUES (?,?,NULL,?,NOW(),'active')",
+        [guest.id, guestName, req.ip]
+      );
+      guestSessionId = inserted.insertId;
+    } catch (err) {
+      // Release the token rather than burning it on a failed attempt — otherwise
+      // the guest's retry gets "already been used" with no way to recover.
+      await db.query("UPDATE guests SET status = 'active' WHERE id = ?", [guest.id]).catch(() => {});
+      throw err;
+    }
 
     // Open the real MikroTik gate + start metering this guest. Best-effort,
     // exactly like the student login (authRoutes): a null return (router down
     // or MIKROTIK_HOST unset) must never block the guest from connecting.
-    const granted = await grantAccess(req.ip, guestSessionId, "guest");
-    if (granted) {
-      await db.query(
-        "UPDATE guest_sessions SET queue_id=?, last_bytes=0, bytes_used=0 WHERE id=?",
-        [granted.queueId, guestSessionId]
-      );
+    // Isolated from the response path on purpose — the token is already spent, so
+    // a throw here (router library, or the metering columns missing because
+    // scripts/addGuestSessionMetering.js hasn't been run) must not 500 and cost
+    // the guest their code. The meter's self-heal picks the session up instead.
+    try {
+      const granted = await grantAccess(req.ip, guestSessionId, "guest");
+      if (granted) {
+        await db.query(
+          "UPDATE guest_sessions SET queue_id=?, last_bytes=0, bytes_used=0 WHERE id=?",
+          [granted.queueId, guestSessionId]
+        );
+      }
+    } catch (err) {
+      console.error("Guest router grant failed (session kept, meter will retry):", err.message);
     }
 
     res.json({

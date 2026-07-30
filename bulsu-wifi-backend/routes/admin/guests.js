@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const db = require('../../db');
 const crypto = require('crypto');
-const { sweepExpiredGuests } = require('../../jobs/guestExpiry');
+const { sweepExpiredGuests, endLapsedGuestSessions } = require('../../jobs/guestExpiry');
 const { logAudit, ACTIONS } = require('../../utils/auditLog');
 
 // GET /api/admin/guests
@@ -61,6 +61,10 @@ router.patch('/:id/revoke', async (req, res) => {
   try {
     const [[g]] = await db.query('SELECT expires_at FROM guests WHERE id=?', [req.params.id]);
     await db.query('UPDATE guests SET status="expired" WHERE id=?', [req.params.id]);
+    // Revoking the code has to actually kick the guest off — otherwise they keep
+    // browsing until the original expiry. The sweeper is the retry net if the
+    // router happens to be unreachable right now.
+    const { pending } = await endLapsedGuestSessions(req.params.id);
     const label = g?.expires_at ? `Guest code (expires ${new Date(g.expires_at).toLocaleString()})` : 'Guest code';
     await logAudit(req, {
       action: ACTIONS.BLOCKED,
@@ -68,7 +72,12 @@ router.patch('/:id/revoke', async (req, res) => {
       target_name: label,
       description: `Revoked ${label}`,
     });
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      ...(pending
+        ? { warning: "Code revoked, but the router couldn't be reached to disconnect the device yet — this will keep retrying." }
+        : {}),
+    });
   } catch (err) {
     console.error('PATCH /admin/guests/:id/revoke failed:', err);
     res.status(500).json({ message: 'Failed to revoke guest.' });

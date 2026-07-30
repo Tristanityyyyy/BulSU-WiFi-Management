@@ -179,6 +179,10 @@ router.patch('/guests/:id/disconnect', async (req, res) => {
   try {
     const session = await forceDisconnectGuestSession(req, req.params.id);
     if (!session) return res.status(404).json({ message: 'Guest session is not active.' });
+    // Nothing retries an admin disconnect of a still-valid guest code, so the
+    // admin has to know when the router couldn't be reached.
+    if (!session.ended)
+      return res.status(503).json({ message: "Couldn't reach the router to disconnect this guest. Please try again." });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to disconnect guest session.' });

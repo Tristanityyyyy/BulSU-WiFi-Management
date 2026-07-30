@@ -56,10 +56,18 @@ async function grantAccess(ip, id, kind = "session") {
   }
 }
 
-// Revokes access and stops metering for a session. Best-effort — never throws,
-// so a router outage can't block logout/session-ending.
+// Revokes access and stops metering for a session. Never throws, so a router
+// outage can't block logout/session-ending — but it DOES report whether the
+// router work actually happened: `true` on success (including when the feature
+// is disabled, where there is nothing to revoke), `false` when the router was
+// unreachable. Callers must not clear their stored queue_id on `false`, or the
+// queue + ip-binding stay live on the device with nothing left to retry with.
+//
+// Note the per-command `.catch(() => {})` below are still success: a "no such
+// item" means the queue/binding is already gone, which is the outcome we want.
+// Only a connection-level failure — what the outer catch sees — returns false.
 async function revokeAccess(ip, queueId) {
-  if (!ENABLED) return;
+  if (!ENABLED) return true;
   try {
     await withConnection(async (conn) => {
       if (queueId) await conn.write("/queue/simple/remove", [`=.id=${queueId}`]).catch(() => {});
@@ -75,8 +83,10 @@ async function revokeAccess(ip, queueId) {
         if (existing[0]) await conn.write("/ip/firewall/address-list/remove", [`=.id=${existing[0][".id"]}`]).catch(() => {});
       }
     });
+    return true;
   } catch (err) {
     console.error("MikroTik revokeAccess failed:", err.message);
+    return false;
   }
 }
 
