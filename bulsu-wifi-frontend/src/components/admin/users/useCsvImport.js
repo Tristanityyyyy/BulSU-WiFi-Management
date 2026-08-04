@@ -7,6 +7,11 @@ import * as usersApi from "./usersApi";
 // current in Settings.
 const REQUIRED_HEADERS = ["student_number", "full_name", "birth_date"];
 
+// Mirrors the server's rule (utils/constants.js) so bad numbers are caught in the
+// preview instead of coming back as a rejected import.
+const ACCOUNT_NUMBER_LENGTH = 10;
+const ACCOUNT_NUMBER_PATTERN = /^\d{10}$/;
+
 function parseCsvLine(line) {
   const values = [];
   let current = "";
@@ -204,8 +209,15 @@ export default function useCsvImport({ catalog, onImported, onReset }) {
     return (catalog.sections || []).some((s) => s.course_id === course.id && (s.name || "").trim().toUpperCase() === row.section_name.trim().toUpperCase());
   };
   const isDuplicateRow = (row) => existingStudentNumbers.includes((row.student_number || "").trim());
+  // A blank number is left alone here — it fails the server's required-fields check as a
+  // single row, whereas a malformed one rejects the whole file. Only flag what's present.
+  const hasValidAccountNumber = (row) => {
+    const value = (row.student_number || "").trim();
+    return !value || ACCOUNT_NUMBER_PATTERN.test(value);
+  };
   const invalidCsvRowCount = importRole === "student" ? csvRows.filter((r) => !isImportRowValid(r)).length : 0;
   const duplicateCsvRowCount = csvRows.filter(isDuplicateRow).length;
+  const badNumberCsvRowCount = csvRows.filter((r) => !hasValidAccountNumber(r)).length;
 
   return {
     csvState, csvRows, csvResult,
@@ -213,6 +225,8 @@ export default function useCsvImport({ catalog, onImported, onReset }) {
     handleFileSelected, downloadCsvTemplate,
     confirmCsvImport, resetCsv, finishImport, removeCsvRow,
     showDuplicateNotice, setShowDuplicateNotice, removeDuplicateRows,
-    isImportRowValid, isDuplicateRow, invalidCsvRowCount, duplicateCsvRowCount,
+    isImportRowValid, isDuplicateRow, hasValidAccountNumber,
+    invalidCsvRowCount, duplicateCsvRowCount, badNumberCsvRowCount,
+    accountNumberLength: ACCOUNT_NUMBER_LENGTH,
   };
 }

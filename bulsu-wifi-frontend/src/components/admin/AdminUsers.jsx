@@ -333,11 +333,12 @@ export default function AdminUsers() {
           courses={catalog.courses}
           sections={catalog.sections}
           onClose={() => setModal(null)}
-          onSaved={() => {
+          onSaved={(message) => {
             const wasAdd = modal === "add";
             setModal(null);
             userList.fetchUsers(userList.page);
-            if (wasAdd) setSuccessMessage("User created successfully.");
+            if (message) setSuccessMessage(message);
+            else if (wasAdd) setSuccessMessage("User created successfully.");
           }}
           onError={(message) => setErrorMessage(message)}
         />

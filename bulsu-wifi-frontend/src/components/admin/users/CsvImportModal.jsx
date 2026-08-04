@@ -10,8 +10,8 @@ export default function CsvImportModal({ csv }) {
     importRole, setImportRole,
     resetCsv, finishImport, removeCsvRow,
     showDuplicateNotice, setShowDuplicateNotice, removeDuplicateRows,
-    confirmCsvImport, isImportRowValid, isDuplicateRow,
-    invalidCsvRowCount, duplicateCsvRowCount,
+    confirmCsvImport, isImportRowValid, isDuplicateRow, hasValidAccountNumber,
+    invalidCsvRowCount, duplicateCsvRowCount, badNumberCsvRowCount, accountNumberLength,
   } = csv;
 
   return (
@@ -26,7 +26,7 @@ export default function CsvImportModal({ csv }) {
           footer={
             <div className="flex gap-3">
               <button onClick={resetCsv} className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
-              <button onClick={confirmCsvImport} disabled={(importRole === "student" && invalidCsvRowCount > 0) || duplicateCsvRowCount > 0 || csvRows.length === 0}
+              <button onClick={confirmCsvImport} disabled={(importRole === "student" && invalidCsvRowCount > 0) || duplicateCsvRowCount > 0 || badNumberCsvRowCount > 0 || csvRows.length === 0}
                 className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none hover:from-pink-700 hover:to-rose-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition">
                 Import {csvRows.length} rows
               </button>
@@ -49,6 +49,11 @@ export default function CsvImportModal({ csv }) {
               {duplicateCsvRowCount} row(s) below use a student number that already exists in the system (highlighted in orange). Remove them (✕) before importing — existing accounts are never overwritten by an import.
             </p>
           )}
+          {badNumberCsvRowCount > 0 && (
+            <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">
+              {badNumberCsvRowCount} row(s) below have a student number / ID that isn't exactly {accountNumberLength} digits (highlighted in red). Fix them in the file — the import will be rejected until they're all {accountNumberLength} digits.
+            </p>
+          )}
           {importRole === "student" && invalidCsvRowCount > 0 && (
             <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">
               {invalidCsvRowCount} row(s) below reference a course or section that isn't registered in the system (highlighted in red). The import will be rejected until these are fixed.
@@ -68,11 +73,12 @@ export default function CsvImportModal({ csv }) {
               </thead>
               <tbody>
                 {csvRows.slice(0, 50).map((r, i) => {
-                  const duplicate = isDuplicateRow(r);
-                  const invalid = !duplicate && importRole === "student" && !isImportRowValid(r);
+                  const badNumber = !hasValidAccountNumber(r);
+                  const duplicate = !badNumber && isDuplicateRow(r);
+                  const invalid = !badNumber && !duplicate && importRole === "student" && !isImportRowValid(r);
                   return (
-                    <tr key={i} className={`border-b border-pink-50 dark:border-wine-800 text-gray-700 dark:text-gray-300 ${duplicate ? "bg-orange-50 dark:bg-orange-950/30" : invalid ? "bg-red-50 dark:bg-red-950/30" : ""}`}>
-                      <td className={`px-3 py-1.5 font-mono ${duplicate ? "text-orange-700 dark:text-orange-400 font-semibold" : ""}`}>{r.student_number}</td>
+                    <tr key={i} className={`border-b border-pink-50 dark:border-wine-800 text-gray-700 dark:text-gray-300 ${duplicate ? "bg-orange-50 dark:bg-orange-950/30" : badNumber || invalid ? "bg-red-50 dark:bg-red-950/30" : ""}`}>
+                      <td className={`px-3 py-1.5 font-mono ${duplicate ? "text-orange-700 dark:text-orange-400 font-semibold" : badNumber ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.student_number}</td>
                       <td className="px-3 py-1.5">{r.full_name}</td>
                       <td className="px-3 py-1.5">{r.birth_date}</td>
                       <td className={`px-3 py-1.5 ${invalid ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.course_code}</td>

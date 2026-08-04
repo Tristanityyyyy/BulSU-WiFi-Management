@@ -5,6 +5,9 @@ import Modal from "../../ui/Modal";
 
 const USER_ROLES = ["student", "faculty", "staff"];
 
+// Student numbers and faculty/staff IDs are both exactly 10 digits.
+const ACCOUNT_NUMBER_LENGTH = 10;
+
 // Best-effort split of a stored "Last, First Middle" string back into the three
 // fields — only used to seed Edit mode, since older records were free-typed and
 // the First/Middle boundary is inherently ambiguous (e.g. a two-word first name).
@@ -28,12 +31,18 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
     course_id: user?.course_id ?? "",
     section_id: user?.section_id ?? "",
     enrollment_status: user?.enrollment_status ?? "enrolled",
-    birthdate: "",
+    birthdate: user?.birth_date ?? "",
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const isStudentRole = form.role === "student";
+  // The user is still on the auto-generated password until they log in and set their own
+  // (or an admin resets it, which puts them back on a generated one). Only while that's
+  // true does editing the name/birthdate change what they log in with.
+  const onDefaultPassword = !isAdminAccount && (!user || Boolean(user.must_change_password));
+  const accountNumberIncomplete =
+    form.student_number.length > 0 && form.student_number.length !== ACCOUNT_NUMBER_LENGTH;
   // Only active catalog entries can be assigned; archived ones are hidden here
   // (they still resolve for display elsewhere via the full catalog).
   const activeCourses = (courses || []).filter((course) => course.status !== "inactive");
@@ -58,17 +67,31 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
   };
 
   // Derive password: LastName + YYYY + MM + DD — reads the Last Name field
-  // directly now, no more parsing a free-text "Last, First Middle" string.
+  // directly now, no more parsing a free-text "Last, First Middle" string. Mirrors
+  // derivePassword() on the server, so the preview matches what actually gets saved.
   const derivedPassword = (() => {
-    if (user) return null; // edit mode — no password change
+    if (!onDefaultPassword) return null;
     const lastName = form.last_name.trim();
     if (!lastName || !form.birthdate) return null;
     const [yyyy, mm, dd] = form.birthdate.split("-");
     return `${lastName}${yyyy}${mm}${dd}`;
   })();
+  // What the saved account currently derives to. Editing the birthdate (or the last name,
+  // the formula's other input) moves the derived password; leaving both alone re-derives
+  // the exact same string, so there'd be nothing to announce.
+  const storedPassword = (() => {
+    if (!user || !onDefaultPassword || !user.birth_date) return null;
+    const lastName = (user.full_name || "").split(",")[0].trim();
+    return lastName ? `${lastName}${user.birth_date.replace(/-/g, "")}` : null;
+  })();
+  const passwordWillChange = Boolean(user && derivedPassword && derivedPassword !== storedPassword);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!user && form.student_number.length !== ACCOUNT_NUMBER_LENGTH) {
+      setError(`Student number / ID must be exactly ${ACCOUNT_NUMBER_LENGTH} digits.`);
+      return;
+    }
     if (!user && !derivedPassword) return;
     setSaving(true);
     setError("");
@@ -83,10 +106,15 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
       };
       if (isAdminAccount) delete payload.role;
       if (user) {
-        await usersApi.updateUser(user.id, payload);
-      } else {
-        await usersApi.createUser({ ...payload, password: derivedPassword });
+        const res = await usersApi.updateUser(user.id, payload);
+        onSaved(
+          res.data?.password && passwordWillChange
+            ? `User updated. Their password is now ${res.data.password} — share it with them so they can still log in.`
+            : undefined
+        );
+        return;
       }
+      await usersApi.createUser({ ...payload, password: derivedPassword });
       onSaved();
     } catch (err) {
       const message = err.response?.data?.message || "Save failed.";
@@ -107,9 +135,29 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
       {error && <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2 mb-3">{error}</p>}
       <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Student Number</label>
-            <input type="text" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })}
-              className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" required />
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Student Number / ID</label>
+            {/* Non-digits are dropped as they're typed and the value is capped at 10, so the
+                only invalid state left to warn about is a number that's still too short. */}
+            <input type="text" inputMode="numeric" autoComplete="off"
+              value={form.student_number}
+              onChange={(e) => setForm({ ...form, student_number: e.target.value.replace(/\D/g, "").slice(0, ACCOUNT_NUMBER_LENGTH) })}
+              maxLength={ACCOUNT_NUMBER_LENGTH}
+              placeholder={`${ACCOUNT_NUMBER_LENGTH} digits`}
+              readOnly={!!user}
+              className={`w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                accountNumberIncomplete
+                  ? "border-red-300 dark:border-red-800 focus:ring-red-400"
+                  : "border-pink-200 dark:border-pink-900 focus:ring-pink-400"
+              } read-only:bg-gray-100 dark:read-only:bg-wine-800 read-only:text-gray-500 dark:read-only:text-gray-400 read-only:cursor-not-allowed`} required />
+            {user ? (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">The student number / ID can't be changed after the account is created.</p>
+            ) : accountNumberIncomplete ? (
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                Student number / ID must be exactly {ACCOUNT_NUMBER_LENGTH} digits — you've entered {form.student_number.length}.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Exactly {ACCOUNT_NUMBER_LENGTH} digits, for students, faculty and staff alike.</p>
+            )}
           </div>
           <div>
             <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Last Name</label>
@@ -179,25 +227,34 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
             </>
           )}
 
-          {!user && (
-            <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Birthdate</label>
-              <input type="date" value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
-                max={new Date().toISOString().split("T")[0]} required
-                className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" />
-              {derivedPassword && (
-                <div className="mt-2 bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2">
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Generated password</p>
-                  <p className="text-sm font-mono font-semibold text-pink-700 dark:text-pink-300">{derivedPassword}</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Share this with the user so they can log in.</p>
-                </div>
-              )}
-            </div>
-          )}
+          <div>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Birthdate</label>
+            <input type="date" value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
+              max={new Date().toISOString().split("T")[0]} required
+              className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" />
+            {derivedPassword && (
+              <div className="mt-2 bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
+                  {user ? (passwordWillChange ? "Password will change to" : "Current generated password") : "Generated password"}
+                </p>
+                <p className="text-sm font-mono font-semibold text-pink-700 dark:text-pink-300">{derivedPassword}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  {passwordWillChange
+                    ? "This user hasn't set their own password yet, so it's still derived from their name and birthdate — saving will update it. Share the new one with them."
+                    : "Share this with the user so they can log in."}
+                </p>
+              </div>
+            )}
+            {user && !onDefaultPassword && !isAdminAccount && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                This user has already set their own password, so editing the birthdate won't change it.
+              </p>
+            )}
+          </div>
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
-            <button type="submit" disabled={saving || (!user && !derivedPassword)}
+            <button type="submit" disabled={saving || (!user && (!derivedPassword || form.student_number.length !== ACCOUNT_NUMBER_LENGTH))}
               className="flex-1 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none disabled:opacity-60 disabled:shadow-none transition">
               {saving ? "Saving…" : "Save"}
             </button>

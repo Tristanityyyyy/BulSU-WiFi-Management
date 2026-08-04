@@ -7,6 +7,7 @@ const { logAudit, ACTIONS } = require('../../../utils/auditLog');
 const { styleHeaderCell, buildBrandedWorkbook, sendWorkbook } = require('../../../utils/xlsxBrand');
 const { getSettings } = require('../../../utils/settings');
 const { derivePassword } = require('../../../utils/derivePassword');
+const { ACCOUNT_NUMBER_LENGTH, ACCOUNT_NUMBER_PATTERN } = require('../../../utils/constants');
 
 const VALID_IMPORT_ROLES = ['student', 'faculty', 'staff'];
 
@@ -130,8 +131,8 @@ router.get('/csv-template', async (req, res) => {
           { header: 'birth_date', width: 14 },
         ],
         exampleRows: [
-          ['2024F001', 'Reyes, Angela Santos', '1988-03-22'],
-          ['2024F002', 'Bautista, Mark Anthony', '1990-07-09'],
+          ['2024100001', 'Reyes, Angela Santos', '1988-03-22'],
+          ['2024100002', 'Bautista, Mark Anthony', '1990-07-09'],
         ],
       });
       return sendWorkbook(res, workbook, `${role}_template.xlsx`);
@@ -154,8 +155,8 @@ router.get('/csv-template', async (req, res) => {
         { header: 'enrollment_status', width: 18 },
       ],
       exampleRows: [
-        ['2024001', 'Dela Cruz, Juan Miguel', '2006-08-15', firstCourse?.code || '', courseSections[0]?.name || '', 'enrolled'],
-        ['2024002', 'Santos, Maria Clara', '2005-11-12', firstCourse?.code || '', courseSections[1]?.name || courseSections[0]?.name || '', 'enrolled'],
+        ['2024100001', 'Dela Cruz, Juan Miguel', '2006-08-15', firstCourse?.code || '', courseSections[0]?.name || '', 'enrolled'],
+        ['2024100002', 'Santos, Maria Clara', '2005-11-12', firstCourse?.code || '', courseSections[1]?.name || courseSections[0]?.name || '', 'enrolled'],
       ],
       dataValidations: [
         { column: 'F', fromRow: 4, toRow: 500, formulae: ['"enrolled"'] },
@@ -182,6 +183,20 @@ router.post('/csv-import', async (req, res) => {
     const { courses, sections, school_years, semesters } = await fetchActiveCatalog();
     const invalidRows = [];
     const resolvedIds = rows.map(() => ({ course_id: null, section_id: null }));
+
+    // Account numbers must be exactly 10 digits for every role. A row with no number at
+    // all is left to the per-row required-fields check below (it just fails that one row);
+    // a number that's present but malformed is a data-entry error worth rejecting the
+    // whole file over, so the admin fixes the spreadsheet rather than importing half of it.
+    rows.forEach((row, idx) => {
+      const studentNumber = (row.student_number || '').trim();
+      if (!studentNumber || ACCOUNT_NUMBER_PATTERN.test(studentNumber)) return;
+      invalidRows.push({
+        row: idx + 2,
+        student_number: studentNumber,
+        reason: `"${studentNumber}" is not a valid student number / ID — it must be exactly ${ACCOUNT_NUMBER_LENGTH} digits (this one has ${studentNumber.length} character(s)).`,
+      });
+    });
 
     // Course/section resolution only applies to students.
     if (role === 'student') {
@@ -218,9 +233,12 @@ router.post('/csv-import', async (req, res) => {
       });
     }
 
+    // Both scans above feed the same bucket, so a row can be listed more than once (bad
+    // number *and* an unregistered course); sort by row so the list reads top-to-bottom.
     if (invalidRows.length) {
+      invalidRows.sort((a, b) => a.row - b.row);
       return res.status(400).json({
-        message: `Import rejected: ${invalidRows.length} row(s) reference a course or section that is not registered in the system. No rows were imported.`,
+        message: `Import rejected: ${invalidRows.length} row(s) have problems that must be fixed in the file first. No rows were imported.`,
         invalid_rows: invalidRows,
       });
     }

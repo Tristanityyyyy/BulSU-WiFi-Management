@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const { logAudit, ACTIONS } = require('../../../utils/auditLog');
 const { verifyOwnPassword } = require('../../../utils/verifyOwnPassword');
 const { derivePassword } = require('../../../utils/derivePassword');
+const { ACCOUNT_NUMBER_PATTERN, ACCOUNT_NUMBER_MESSAGE } = require('../../../utils/constants');
 
 const VALID_IMPORT_ROLES = ['student', 'faculty', 'staff'];
 
@@ -26,7 +27,8 @@ router.get('/', async (req, res) => {
     if (course_id) { where += ' AND u.course_id = ?'; params.push(course_id); }
     if (section_id) { where += ' AND u.section_id = ?'; params.push(section_id); }
     const [users] = await db.query(
-      `SELECT u.id, u.student_number, u.full_name, u.course_id, u.section_id, u.enrollment_status, u.role, u.status, u.must_change_password
+      `SELECT u.id, u.student_number, u.full_name, DATE_FORMAT(u.birth_date, '%Y-%m-%d') AS birth_date,
+              u.course_id, u.section_id, u.enrollment_status, u.role, u.status, u.must_change_password
        FROM users u ${where} ORDER BY u.full_name LIMIT ? OFFSET ?`,
       [...params, Number(limit), Number(offset)]
     );
@@ -43,6 +45,8 @@ router.post('/', async (req, res) => {
     const { student_number, full_name, birthdate, course_id, section_id, enrollment_status, role, password } = req.body;
     if (!student_number || !full_name || !password)
       return res.status(400).json({ message: 'student_number, full_name, and password are required.' });
+    if (!ACCOUNT_NUMBER_PATTERN.test(String(student_number).trim()))
+      return res.status(400).json({ message: ACCOUNT_NUMBER_MESSAGE });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthdate || ''))
       return res.status(400).json({ message: 'A valid birth date (YYYY-MM-DD) is required.' });
     const finalRole = role || 'student';
@@ -51,7 +55,7 @@ router.post('/', async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       'INSERT INTO users (student_number, full_name, birth_date, course_id, section_id, enrollment_status, password_hash, role, status, must_change_password) VALUES (?,?,?,?,?,?,?,?,?,1)',
-      [student_number, full_name, birthdate, finalRole === 'student' ? normalizeId(course_id) : null, finalRole === 'student' ? normalizeId(section_id) : null, enrollment_status, hashed, finalRole, 'active']
+      [String(student_number).trim(), full_name, birthdate, finalRole === 'student' ? normalizeId(course_id) : null, finalRole === 'student' ? normalizeId(section_id) : null, enrollment_status, hashed, finalRole, 'active']
     );
     await logAudit(req, {
       action: ACTIONS.CREATED,
@@ -70,11 +74,24 @@ router.post('/', async (req, res) => {
 // PUT /api/admin/users/:id
 router.put('/:id', async (req, res) => {
   try {
-    const { full_name, course_id, section_id, enrollment_status, role } = req.body;
+    const { full_name, birthdate, course_id, section_id, enrollment_status, role } = req.body;
     // role is omitted entirely when editing the admin account (the form hides it), so only
     // touch the column when a role was actually sent, and never allow setting it outside the three import roles.
     if (role !== undefined && !VALID_IMPORT_ROLES.includes(role))
       return res.status(400).json({ message: 'role must be one of: student, faculty, staff.' });
+
+    const [[target]] = await db.query(
+      'SELECT student_number, role, must_change_password FROM users WHERE id=? AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (!target) return res.status(404).json({ message: 'User not found.' });
+
+    // Birth date is optional on update — older clients and the admin-account form don't
+    // send it — but when it is sent it has to be a real date.
+    const birthdateGiven = birthdate !== undefined && birthdate !== null && birthdate !== '';
+    if (birthdateGiven && !/^\d{4}-\d{2}-\d{2}$/.test(birthdate))
+      return res.status(400).json({ message: 'A valid birth date (YYYY-MM-DD) is required.' });
+
     const courseSectionAllowed = role === undefined || role === 'student';
     const fields = ['full_name=?', 'course_id=?', 'section_id=?', 'enrollment_status=?'];
     const params = [
@@ -83,19 +100,39 @@ router.put('/:id', async (req, res) => {
       courseSectionAllowed ? normalizeId(section_id) : null,
       enrollment_status,
     ];
+    if (birthdateGiven) {
+      fields.push('birth_date=?');
+      params.push(birthdate);
+    }
     if (role !== undefined) {
       fields.push('role=?');
       params.push(role);
     }
+
+    // The default password is derived from last name + birth date. While the user is still
+    // sitting on that default (must_change_password = 1 — they haven't logged in and set
+    // their own password yet), editing either input has to regenerate it, otherwise the
+    // credentials the admin handed out stop matching the account. Once they've set their
+    // own password the derivation no longer applies and we leave the hash alone.
+    const regenerate = Boolean(target.must_change_password) && target.role !== 'admin' && birthdateGiven;
+    let newPassword = null;
+    if (regenerate) {
+      newPassword = derivePassword({ birth_date: birthdate, full_name, student_number: target.student_number });
+      fields.push('password_hash=?');
+      params.push(await bcrypt.hash(newPassword, 10));
+    }
+
     params.push(req.params.id);
     await db.query(`UPDATE users SET ${fields.join(', ')} WHERE id=?`, params);
     await logAudit(req, {
       action: ACTIONS.UPDATE,
       target_type: 'user',
       target_name: full_name,
-      description: `Updated account for ${full_name}`,
+      description: regenerate
+        ? `Updated account for ${full_name} — default password regenerated from the new details`
+        : `Updated account for ${full_name}`,
     });
-    res.json({ ok: true });
+    res.json({ ok: true, password: newPassword });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update user.' });
   }
