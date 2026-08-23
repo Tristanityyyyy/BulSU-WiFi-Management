@@ -54,6 +54,10 @@ async function meterActiveQueues(bandwidth) {
       );
     }
     await db.query("UPDATE active_queues SET last_bytes=? WHERE session_id=?", [bytes, row.session_id]);
+    // Bytes moved => the device is demonstrably still here. Refreshing last_seen
+    // from traffic as well as from the router's presence tables means an actively
+    // used session can never be swept as "departed" by a presence read that missed it.
+    if (delta > 0) await db.query("UPDATE sessions SET last_seen=NOW() WHERE id=?", [row.session_id]);
   }
 }
 
@@ -137,6 +141,7 @@ async function meterAndCapGuests(limits) {
       "UPDATE guest_sessions SET bytes_used = bytes_used + ?, last_bytes = ? WHERE id = ?",
       [delta > 0 ? delta : 0, bytes, row.id]
     );
+    if (delta > 0) await db.query("UPDATE guest_sessions SET last_seen=NOW() WHERE id=?", [row.id]);
 
     const capGb = Number(row.data_limit_gb);
     if (capGb > 0) {

@@ -35,6 +35,7 @@ function StatusBadge({ status }) {
     ended: "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-wine-700",
     "force-disconnected": "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900",
     timeout: "bg-orange-50 dark:bg-orange-950/30 text-orange-600 border-orange-200",
+    disconnected: "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900",
   };
   return (
     <span className={`inline-block whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium border ${map[status] ?? "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400"}`}>
@@ -219,6 +220,7 @@ export default function AdminSessions() {
           <option value="active">Active</option>
           <option value="ended">Ended</option>
           <option value="force-disconnected">Force-Disconnected</option>
+          <option value="disconnected">Disconnected</option>
           <option value="timeout">Timeout</option>
         </select>
         {!isGuest && (
@@ -226,6 +228,7 @@ export default function AdminSessions() {
             className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
             <option value="">All Reasons</option>
             <option value="user_logout">User Logout</option>
+            <option value="device_disconnected">Device Disconnected</option>
             <option value="timeout">Timeout</option>
             <option value="force_disconnect">Force Disconnect</option>
             <option value="data_limit">Data Limit</option>

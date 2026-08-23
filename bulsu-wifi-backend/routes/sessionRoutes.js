@@ -4,8 +4,7 @@ const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
 const { getSettings } = require("../utils/settings");
 const { endSession } = require("../utils/sessions");
-
-const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240, staff: 240, admin: 240 };
+const { DEFAULT_SESSION_TIMEOUT_MIN } = require("../utils/constants");
 
 // GET /api/session/status — polled by the dashboard to drive the time-remaining
 // countdown, low-data warning, and the data-usage ring.

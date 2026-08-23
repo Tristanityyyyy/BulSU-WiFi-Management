@@ -19,6 +19,7 @@ const DEFAULTS = {
   data_cap_gb_staff: 0,          data_cap_gb_guest: 0.5,
   session_timeout_student: 120,  session_timeout_faculty: 240,
   session_timeout_staff: 240,    session_timeout_guest: 60,
+  presence_grace_minutes: 5,
   one_device_policy: "true",
   max_devices_student: 2,        max_devices_faculty: 3,
   max_devices_staff: 3,          max_devices_admin: 5,

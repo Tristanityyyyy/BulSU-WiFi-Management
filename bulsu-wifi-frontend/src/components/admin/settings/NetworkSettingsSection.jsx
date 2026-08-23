@@ -1,4 +1,4 @@
-import { Gauge, Database, Timer, Smartphone } from "lucide-react";
+import { Gauge, Database, Timer, Smartphone, WifiOff } from "lucide-react";
 import SectionCard from "./SectionCard";
 import { ROLE_LABELS } from "../../../constants/roles";
 
@@ -114,16 +114,33 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
         />
       )}
       {activeSection === "timeout" && (
-        <RoleTable
-          icon={<Timer size={16} />}
-          title="Session Timeout"
-          hint="How long a session stays active before re-login."
-          settings={settings}
-          onChange={onChange}
-          columns={[
-            { key: "session_timeout", label: "Timeout", type: "duration" },
-          ]}
-        />
+        <div className="space-y-4">
+          <RoleTable
+            icon={<Timer size={16} />}
+            title="Session Timeout"
+            hint="How long a session stays active before re-login."
+            settings={settings}
+            onChange={onChange}
+            columns={[
+              { key: "session_timeout", label: "Timeout", type: "duration" },
+            ]}
+          />
+          <SectionCard
+            icon={<WifiOff size={16} />}
+            title="Disconnect When Device Leaves"
+            hint="A device that turns its WiFi off never says goodbye, so the router is asked instead. Once it has been off the network this long, its session ends on its own. 0 turns this off and leaves only the timeout above.">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                value={settings.presence_grace_minutes ?? ""}
+                onChange={(e) => onChange("presence_grace_minutes", e.target.value)}
+                className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent w-20 transition"
+              />
+              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">minutes off the network</span>
+            </div>
+          </SectionCard>
+        </div>
       )}
       {activeSection === "devicepolicy" && (
         <div className="space-y-4">

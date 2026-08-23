@@ -8,6 +8,7 @@ const STATUS_COLORS = {
   active: 'FF16A34A',
   ended: 'FF6B7280',
   'force-disconnected': 'FFDC2626',
+  disconnected: 'FFD97706',
   timeout: 'FFEA580C',
 };
 

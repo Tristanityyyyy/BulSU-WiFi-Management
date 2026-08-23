@@ -194,6 +194,71 @@ async function readQueueState(queueId) {
   }
 }
 
+// Presence: who is actually on the network right now.
+//
+// Nothing in `sessions` could ever answer that before — a phone that turns its
+// WiFi off says nothing to the backend, so its row stayed 'active' until an
+// admin killed it by hand. The router does know, from two tables that mean
+// different things and are deliberately unioned here:
+//
+//   * the WiFi registration table — every associated wireless client. This is
+//     the authoritative signal for phones, and it survives a device sitting
+//     idle with its screen off, which is exactly when a traffic-based guess
+//     would wrongly declare it gone.
+//   * the bridge host table — every MAC the bridge has heard from recently, on
+//     any port. It covers what the registration table cannot: the portal laptop
+//     wired into ether2, which is associated with no WiFi at all and must never
+//     be swept. Its entries age out on their own (bridge ageing-time, 5m by
+//     default), so a device that left drops off this list too.
+//
+// ARP and the DHCP leases are NOT presence signals — a stale ARP entry for a
+// phone that left hours ago is exactly what this deployment had sitting on it.
+// They serve only as the address book that maps a session's stored IP to the
+// MAC the two tables above are keyed by.
+//
+// Returns { liveMacs, macByIp } — or null when the router is unreachable, which
+// callers MUST treat as "no information", never as "nobody is connected".
+async function readNetworkPresence() {
+  if (!ENABLED) return null;
+  const upper = (value) => String(value || "").trim().toUpperCase();
+  try {
+    return await withConnection(async (conn) => {
+      const liveMacs = new Set();
+
+      // wifiwave2 (`/interface/wifi`, what the hAP ax2 runs) and the legacy
+      // wireless stack are mutually exclusive — the absent one answers "no such
+      // command", a per-command miss rather than a router outage. Swallow it
+      // here so the catch below can't mistake it for one.
+      for (const path of ["/interface/wifi/registration-table/print", "/interface/wireless/registration-table/print"]) {
+        const rows = await conn.write(path, []).catch(() => []);
+        for (const row of rows) if (row["mac-address"]) liveMacs.add(upper(row["mac-address"]));
+      }
+
+      const hosts = await conn.write("/interface/bridge/host/print", []).catch(() => []);
+      for (const host of hosts) {
+        // local=true is the bridge's own interface MAC, not a client.
+        if (host.local !== "true" && host["mac-address"]) liveMacs.add(upper(host["mac-address"]));
+      }
+
+      const macByIp = new Map();
+      const learn = (ip, mac) => {
+        if (ip && mac) macByIp.set(normalizeIp(ip), upper(mac));
+      };
+      const arp = await conn.write("/ip/arp/print", []).catch(() => []);
+      for (const entry of arp) learn(entry.address, entry["mac-address"]);
+      // Leases are read second so a live lease wins over an ARP entry that may
+      // predate the address being handed to somebody else.
+      const leases = await conn.write("/ip/dhcp-server/lease/print", []).catch(() => []);
+      for (const lease of leases) learn(lease.address, lease["mac-address"]);
+
+      return { liveMacs, macByIp };
+    });
+  } catch (err) {
+    console.error("MikroTik readNetworkPresence failed:", err.message);
+    return null;
+  }
+}
+
 // Re-applies a role's ceiling to a queue that already exists, so an admin
 // editing Settings → Network takes effect on sessions that are already live
 // rather than only on the next login. Best-effort like everything else here:
@@ -211,4 +276,4 @@ async function setQueueLimit(queueId, limits) {
   }
 }
 
-module.exports = { grantAccess, revokeAccess, readQueueState, setQueueLimit, toMaxLimit, maxLimitMatches, isOursToReuse, ENABLED };
+module.exports = { grantAccess, revokeAccess, readQueueState, readNetworkPresence, setQueueLimit, toMaxLimit, maxLimitMatches, isOursToReuse, ENABLED };

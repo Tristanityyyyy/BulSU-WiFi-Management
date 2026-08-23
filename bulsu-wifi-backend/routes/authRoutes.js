@@ -11,8 +11,9 @@ const { normalizeIp } = require("../utils/ip");
 
 // Fallback values used until the admin actually saves Settings at least once
 // (the `settings` table only ever holds keys that were explicitly saved).
+const { DEFAULT_SESSION_TIMEOUT_MIN } = require("../utils/constants");
+
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
-const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240, staff: 240, admin: 240 };
 
 // Roles this account/day-based data cap applies to. Guests have their own
 // per-QR data_limit_gb mechanism (guestRoutes.js); admin has no client-facing
