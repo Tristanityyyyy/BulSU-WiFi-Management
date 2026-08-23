@@ -8,7 +8,8 @@ import { Star, MessageSquareHeart, Users2, TrendingUp, Trash2, RotateCcw } from 
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import SelectAllHeader from "./SelectAllHeader";
-import ConfirmDialog from "./ConfirmDialog";
+import ConfirmDialog from "../ui/ConfirmDialog";
+import SuccessDialog from "../ui/SuccessDialog";
 import useFeedbackList from "./useFeedbackList";
 import useFeedbackTrashList from "./useFeedbackTrashList";
 import { useTheme } from "../../theme";
@@ -391,16 +392,7 @@ export default function AdminFeedback() {
       )}
 
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doAction} onCancel={() => setConfirm(null)} />}
-      {successMessage && (
-        <ConfirmDialog
-          title="Success"
-          message={successMessage}
-          confirmLabel="OK"
-          danger={false}
-          onConfirm={() => setSuccessMessage("")}
-          onCancel={() => setSuccessMessage("")}
-        />
-      )}
+      {successMessage && <SuccessDialog message={successMessage} onClose={() => setSuccessMessage("")} />}
       {errorMessage && (
         <ConfirmDialog
           title="Something went wrong"

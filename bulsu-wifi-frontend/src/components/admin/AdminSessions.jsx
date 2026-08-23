@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Download, WifiOff } from "lucide-react";
+import { Download, WifiOff, Trash2 } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
-import ConfirmDialog from "./ConfirmDialog";
+import ConfirmDialog from "../ui/ConfirmDialog";
+import SuccessDialog from "../ui/SuccessDialog";
 
 const PAGE_SIZE = 20;
 
@@ -52,6 +53,7 @@ export default function AdminSessions() {
   const [status, setStatus] = useState("");
   const [logoutReason, setLogoutReason] = useState("");
   const [confirm, setConfirm] = useState(null);
+  const [success, setSuccess] = useState("");
   const [actionError, setActionError] = useState("");
 
   const isGuest = tab === "guest";
@@ -81,15 +83,27 @@ export default function AdminSessions() {
     downloadXlsx(res.data, `${tab}-sessions-${Date.now()}.xlsx`);
   };
 
-  const doConfirmedDisconnect = async () => {
-    const { id, isGuest: wasGuest } = confirm;
+  const doConfirmedAction = async () => {
+    const { id, isGuest: wasGuest, action, name } = confirm;
     setConfirm(null);
     setActionError("");
     try {
-      await adminApi.patch(wasGuest ? `/admin/sessions/guests/${id}/disconnect` : `/admin/sessions/${id}/disconnect`);
+      if (action === "delete") {
+        await adminApi.delete(wasGuest ? `/admin/sessions/guests/${id}` : `/admin/sessions/${id}`);
+        setSuccess(`${name}'s session log has been deleted.`);
+        // Removing the last row of a page would otherwise leave the table empty
+        // on a page that no longer exists — step back instead of reloading it.
+        if (rows.length === 1 && page > 1) { setPage(page - 1); return; }
+      } else {
+        await adminApi.patch(wasGuest ? `/admin/sessions/guests/${id}/disconnect` : `/admin/sessions/${id}/disconnect`);
+        setSuccess(`${name} has been disconnected from the network.`);
+      }
       fetchSessions(page);
     } catch (err) {
-      setActionError(err.response?.data?.message || "Failed to disconnect session.");
+      setActionError(
+        err.response?.data?.message ||
+          (action === "delete" ? "Failed to delete session." : "Failed to disconnect session.")
+      );
     }
   };
 
@@ -110,10 +124,25 @@ export default function AdminSessions() {
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.logout_reason ?? "—"}</td>
       <td className="px-4 py-2">
-        {s.status === "active" && (
-          <button onClick={() => setConfirm({ id: s.id, isGuest: false, label: `Disconnect ${s.full_name}'s active session?` })}
+        {s.status === "active" ? (
+          <button onClick={() => setConfirm({
+              id: s.id, isGuest: false, action: "disconnect", name: s.full_name,
+              title: "Force-disconnect this session?",
+              label: `${s.full_name} will be dropped from the network immediately and will have to log in again.`,
+              confirmLabel: "Disconnect",
+            })}
             className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
             <WifiOff size={12} /> Disconnect
+          </button>
+        ) : (
+          <button onClick={() => setConfirm({
+              id: s.id, isGuest: false, action: "delete", name: s.full_name,
+              title: "Delete this session log?",
+              label: `${s.full_name}'s session from ${s.login_time ? new Date(s.login_time).toLocaleString() : "an earlier date"} will be removed from the logs. This can't be undone.`,
+              confirmLabel: "Delete",
+            })}
+            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
+            <Trash2 size={12} /> Delete
           </button>
         )}
       </td>
@@ -130,10 +159,25 @@ export default function AdminSessions() {
       <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
       <td className="px-4 py-2">
-        {s.status === "active" && (
-          <button onClick={() => setConfirm({ id: s.id, isGuest: true, label: `Disconnect guest ${s.guest_name}'s active session?` })}
+        {s.status === "active" ? (
+          <button onClick={() => setConfirm({
+              id: s.id, isGuest: true, action: "disconnect", name: `Guest ${s.guest_name}`,
+              title: "Force-disconnect this guest?",
+              label: `${s.guest_name} will be dropped from the network immediately.`,
+              confirmLabel: "Disconnect",
+            })}
             className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
             <WifiOff size={12} /> Disconnect
+          </button>
+        ) : (
+          <button onClick={() => setConfirm({
+              id: s.id, isGuest: true, action: "delete", name: `Guest ${s.guest_name}`,
+              title: "Delete this session log?",
+              label: `${s.guest_name}'s session from ${s.login_time ? new Date(s.login_time).toLocaleString() : "an earlier date"} will be removed from the logs. This can't be undone.`,
+              confirmLabel: "Delete",
+            })}
+            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
+            <Trash2 size={12} /> Delete
           </button>
         )}
       </td>
@@ -204,7 +248,16 @@ export default function AdminSessions() {
         emptyHint="Try adjusting the date range or status filter."
       />
 
-      {confirm && <ConfirmDialog message={confirm.label} onConfirm={doConfirmedDisconnect} onCancel={() => setConfirm(null)} />}
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          message={confirm.label}
+          confirmLabel={confirm.confirmLabel}
+          onConfirm={doConfirmedAction}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+      {success && <SuccessDialog message={success} onClose={() => setSuccess("")} />}
     </div>
   );
 }

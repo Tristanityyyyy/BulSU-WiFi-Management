@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Plus, GraduationCap, Users2, CalendarRange, Layers } from "lucide-react";
 import adminApi from "../adminApi";
-import ConfirmDialog from "../ConfirmDialog";
+import ConfirmDialog from "../../ui/ConfirmDialog";
+import SuccessDialog from "../../ui/SuccessDialog";
 import SectionCard from "./SectionCard";
 import { CatalogViewRow, CatalogEditRow, CurrentBadge, CurrentSelector, ArchivedBadge } from "./CatalogListRow";
 
@@ -18,6 +19,8 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
   const [semesterForm, setSemesterForm] = useState({ name: "" });
   const [editingSemesterId, setEditingSemesterId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmSave, setConfirmSave] = useState(null);
+  const [success, setSuccess] = useState("");
   // Active vs Archived view within the current tab. Reset to Active on tab switch.
   const [showArchived, setShowArchived] = useState(false);
   useEffect(() => { setShowArchived(false); }, [activeSection]);
@@ -30,10 +33,11 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
   // Collapses the try/save-or-delete/refresh/report-error pattern shared by all four
   // course/section mutations below — the JSX for each stays separate since course and
   // section forms/rows differ enough that unifying them isn't worth the indirection.
-  const runCatalogAction = async (action, errorMessage) => {
+  const runCatalogAction = async (action, errorMessage, successMessage) => {
     try {
       await action();
       await refreshCatalog();
+      if (successMessage) setSuccess(successMessage);
     } catch (err) {
       onError(err.response?.data?.message || errorMessage);
     }
@@ -45,32 +49,48 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
   const handleCourseSubmit = (e) => {
     e.preventDefault();
     const payload = { code: courseForm.code.trim(), name: courseForm.name.trim() };
-    runCatalogAction(async () => {
-      if (editingCourseId) await adminApi.put(`/admin/settings/catalog/courses/${editingCourseId}`, payload);
-      else await adminApi.post("/admin/settings/catalog/courses", payload);
-      cancelCourseEdit();
-    }, "Unable to save course.");
+    const editing = Boolean(editingCourseId);
+    setConfirmSave({
+      title: editing ? `Save changes to this course?` : `Add this course?`,
+      message: editing
+        ? `This course will be saved as "${payload.code} — ${payload.name}".`
+        : `"${payload.code} — ${payload.name}" will be added to the catalog.`,
+      confirmLabel: editing ? "Save changes" : `Add course`,
+      run: () => runCatalogAction(async () => {
+        if (editingCourseId) await adminApi.put(`/admin/settings/catalog/courses/${editingCourseId}`, payload);
+        else await adminApi.post("/admin/settings/catalog/courses", payload);
+        cancelCourseEdit();
+      }, "Unable to save course.", editing ? `The course has been updated.` : `The course has been added.`),
+    });
   };
 
   const handleCourseDelete = (id) =>
-    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/courses/${id}`), "Unable to delete course.");
+    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/courses/${id}`), "Unable to delete course.", "Course archived.");
 
   // Reactivation for each catalog type — restores an archived entry to active.
   const handleReactivate = (type, id) =>
-    runCatalogAction(() => adminApi.patch(`/admin/settings/catalog/${type}/${id}/reactivate`), "Unable to reactivate.");
+    runCatalogAction(() => adminApi.patch(`/admin/settings/catalog/${type}/${id}/reactivate`), "Unable to reactivate.", "Restored to the catalog.");
 
   const handleSectionSubmit = (e) => {
     e.preventDefault();
     const payload = { name: sectionForm.name.trim(), course_id: sectionForm.course_id };
-    runCatalogAction(async () => {
-      if (editingSectionId) await adminApi.put(`/admin/settings/catalog/sections/${editingSectionId}`, payload);
-      else await adminApi.post("/admin/settings/catalog/sections", payload);
-      cancelSectionEdit();
-    }, "Unable to save section.");
+    const editing = Boolean(editingSectionId);
+    setConfirmSave({
+      title: editing ? `Save changes to this section?` : `Add this section?`,
+      message: editing
+        ? `This section will be saved as "${payload.name}".`
+        : `"${payload.name}" will be added to the catalog.`,
+      confirmLabel: editing ? "Save changes" : `Add section`,
+      run: () => runCatalogAction(async () => {
+        if (editingSectionId) await adminApi.put(`/admin/settings/catalog/sections/${editingSectionId}`, payload);
+        else await adminApi.post("/admin/settings/catalog/sections", payload);
+        cancelSectionEdit();
+      }, "Unable to save section.", editing ? `The section has been updated.` : `The section has been added.`),
+    });
   };
 
   const handleSectionDelete = (id) =>
-    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/sections/${id}`), "Unable to delete section.");
+    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/sections/${id}`), "Unable to delete section.", "Section archived.");
 
   const cancelSchoolYearEdit = () => { setEditingSchoolYearId(null); setSchoolYearForm({ name: "" }); };
   const cancelSemesterEdit = () => { setEditingSemesterId(null); setSemesterForm({ name: "" }); };
@@ -78,32 +98,48 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
   const handleSchoolYearSubmit = (e) => {
     e.preventDefault();
     const payload = { name: schoolYearForm.name.trim() };
-    runCatalogAction(async () => {
-      if (editingSchoolYearId) await adminApi.put(`/admin/settings/catalog/school-years/${editingSchoolYearId}`, payload);
-      else await adminApi.post("/admin/settings/catalog/school-years", payload);
-      cancelSchoolYearEdit();
-    }, "Unable to save school year.");
+    const editing = Boolean(editingSchoolYearId);
+    setConfirmSave({
+      title: editing ? `Save changes to this school year?` : `Add this school year?`,
+      message: editing
+        ? `This school year will be saved as "${payload.name}".`
+        : `"${payload.name}" will be added to the catalog.`,
+      confirmLabel: editing ? "Save changes" : `Add school year`,
+      run: () => runCatalogAction(async () => {
+        if (editingSchoolYearId) await adminApi.put(`/admin/settings/catalog/school-years/${editingSchoolYearId}`, payload);
+        else await adminApi.post("/admin/settings/catalog/school-years", payload);
+        cancelSchoolYearEdit();
+      }, "Unable to save school year.", editing ? `The school year has been updated.` : `The school year has been added.`),
+    });
   };
 
   const handleSchoolYearDelete = (id) =>
-    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/school-years/${id}`), "Unable to delete school year.");
+    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/school-years/${id}`), "Unable to delete school year.", "School year archived.");
 
   const handleSemesterSubmit = (e) => {
     e.preventDefault();
     const payload = { name: semesterForm.name.trim() };
-    runCatalogAction(async () => {
-      if (editingSemesterId) await adminApi.put(`/admin/settings/catalog/semesters/${editingSemesterId}`, payload);
-      else await adminApi.post("/admin/settings/catalog/semesters", payload);
-      cancelSemesterEdit();
-    }, "Unable to save semester.");
+    const editing = Boolean(editingSemesterId);
+    setConfirmSave({
+      title: editing ? `Save changes to this semester?` : `Add this semester?`,
+      message: editing
+        ? `This semester will be saved as "${payload.name}".`
+        : `"${payload.name}" will be added to the catalog.`,
+      confirmLabel: editing ? "Save changes" : `Add semester`,
+      run: () => runCatalogAction(async () => {
+        if (editingSemesterId) await adminApi.put(`/admin/settings/catalog/semesters/${editingSemesterId}`, payload);
+        else await adminApi.post("/admin/settings/catalog/semesters", payload);
+        cancelSemesterEdit();
+      }, "Unable to save semester.", editing ? `The semester has been updated.` : `The semester has been added.`),
+    });
   };
 
   const handleSemesterDelete = (id) =>
-    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/semesters/${id}`), "Unable to delete semester.");
+    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/semesters/${id}`), "Unable to delete semester.", "Semester archived.");
 
   const TYPE_PATH = { course: "courses", section: "sections", school_year: "school-years", semester: "semesters" };
   const handlePermanentDelete = (type, id) =>
-    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/${TYPE_PATH[type]}/${id}/permanent`), "Unable to permanently delete.");
+    runCatalogAction(() => adminApi.delete(`/admin/settings/catalog/${TYPE_PATH[type]}/${id}/permanent`), "Unable to permanently delete.", "Permanently deleted.");
 
   const doConfirmedDelete = async () => {
     const { type, id, permanent } = confirmDelete;
@@ -446,6 +482,17 @@ export default function CatalogSettingsSection({ activeSection, catalog, onCatal
         </SectionCard>
       )}
 
+      {confirmSave && (
+        <ConfirmDialog
+          title={confirmSave.title}
+          message={confirmSave.message}
+          confirmLabel={confirmSave.confirmLabel}
+          danger={false}
+          onConfirm={() => { const { run } = confirmSave; setConfirmSave(null); run(); }}
+          onCancel={() => setConfirmSave(null)}
+        />
+      )}
+      {success && <SuccessDialog message={success} onClose={() => setSuccess("")} />}
       {confirmDelete && (
         <ConfirmDialog
           title={confirmDelete.permanent ? "Permanently delete" : "Archive from catalog"}

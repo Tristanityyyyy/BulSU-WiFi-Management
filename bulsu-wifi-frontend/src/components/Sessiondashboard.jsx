@@ -5,6 +5,8 @@ import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import LoadingSpinner from "./ui/LoadingSpinner";
 import WifiIcon from "./ui/WifiIcon";
+import ConfirmDialog from "./ui/ConfirmDialog";
+import SuccessDialog from "./ui/SuccessDialog";
 import FeedbackModal from "./feedback/FeedbackModal";
 
 import { API_BASE } from "../config/api";
@@ -31,6 +33,8 @@ export default function SessionDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [disconnected, setDisconnected] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const hasWarnedLowData = useRef(false);
   const hasWarnedLowTime = useRef(false);
@@ -46,6 +50,12 @@ export default function SessionDashboard() {
       setSecondsLeft(res.data.expiresInSec);
       setError("");
     } catch (err) {
+      // A poll that lands after the user disconnected finds the token already
+      // gone and 401s. That's expected, not a failure: bouncing to the login
+      // page here would snatch away the "you're disconnected" confirmation
+      // before it could be read, so only a session that still holds a token
+      // gets sent back.
+      if (!localStorage.getItem("token")) return;
       setError(err.response?.data?.message || "Unable to load session status.");
       if (err.response?.status === 401) window.location.href = "/";
     } finally {
@@ -54,10 +64,11 @@ export default function SessionDashboard() {
   };
 
   useEffect(() => {
+    if (disconnecting || disconnected) return; // session is being torn down — stop polling it
     fetchStatus();
     const poll = setInterval(fetchStatus, POLL_INTERVAL_MS);
     return () => clearInterval(poll);
-  }, []);
+  }, [disconnecting, disconnected]);
 
   useEffect(() => {
     if (secondsLeft == null) return;
@@ -107,8 +118,11 @@ export default function SessionDashboard() {
     } catch {
       // drop local session regardless
     } finally {
+      // The token is dropped straight away, but the redirect waits for the user
+      // to acknowledge — otherwise the confirmation would flash past unread.
       localStorage.removeItem("token");
-      window.location.href = "/";
+      setDisconnecting(false);
+      setDisconnected(true);
     }
   };
 
@@ -209,7 +223,7 @@ export default function SessionDashboard() {
           )}
         </div>
 
-        <Button onClick={() => setShowFeedback(true)} disabled={disconnecting}>
+        <Button onClick={() => setConfirmDisconnect(true)} disabled={disconnecting}>
           {disconnecting ? "Disconnecting..." : "Disconnect"}
         </Button>
 
@@ -218,11 +232,30 @@ export default function SessionDashboard() {
         </p>
       </div>
 
+      {confirmDisconnect && (
+        <ConfirmDialog
+          title="Disconnect from Wi-Fi?"
+          message="Your session will end and you'll need to log in again to get back online. Any data left in today's allowance stays on your account."
+          confirmLabel="Disconnect"
+          onConfirm={() => { setConfirmDisconnect(false); setShowFeedback(true); }}
+          onCancel={() => setConfirmDisconnect(false)}
+        />
+      )}
+
       {showFeedback && (
         <FeedbackModal
           onSubmit={handleFeedbackSubmit}
           onCancel={handleFeedbackSkip}
           cancelLabel="Skip"
+        />
+      )}
+
+      {disconnected && (
+        <SuccessDialog
+          title="You're disconnected"
+          message="Your Wi-Fi session has ended. Log in again anytime to reconnect."
+          confirmLabel="Back to login"
+          onClose={() => { window.location.href = "/"; }}
         />
       )}
     </div>

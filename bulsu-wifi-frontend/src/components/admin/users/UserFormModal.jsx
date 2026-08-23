@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pencil, UserPlus } from "lucide-react";
 import * as usersApi from "./usersApi";
 import Modal from "../../ui/Modal";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 
 const USER_ROLES = ["student", "faculty", "staff"];
 
@@ -40,6 +41,7 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
     birthdate: user?.birth_date ?? "",
   }));
   const [saving, setSaving] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [error, setError] = useState("");
 
   const isStudentRole = form.role === "student";
@@ -98,13 +100,19 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
   })();
   const passwordWillChange = Boolean(user && derivedPassword && derivedPassword !== storedPassword);
 
-  const handleSubmit = async (e) => {
+  // Submit only raises the question — the account is written once it's answered.
+  const handleSubmit = (e) => {
     e.preventDefault();
     if (!user && form.student_number.length !== ACCOUNT_NUMBER_LENGTH) {
       setError(`Student number / ID must be exactly ${ACCOUNT_NUMBER_LENGTH} digits.`);
       return;
     }
     if (!user && !derivedPassword) return;
+    setConfirmSave(true);
+  };
+
+  const saveUser = async () => {
+    setConfirmSave(false);
     setSaving(true);
     setError("");
     try {
@@ -277,6 +285,23 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
             </button>
           </div>
         </form>
+
+      {confirmSave && (
+        <ConfirmDialog
+          title={user ? "Save changes to this account?" : "Create this account?"}
+          message={
+            user
+              ? passwordWillChange
+                ? `${form.last_name.trim()}'s details will be updated, and because their birthday changed their default password is regenerated — you'll be shown the new one to pass on.`
+                : "This account's details will be updated."
+              : `A new ${form.role || "user"} account will be created for ${form.first_name.trim()} ${form.last_name.trim()} (${form.student_number}).`
+          }
+          confirmLabel={user ? "Save Changes" : "Create Account"}
+          danger={false}
+          onConfirm={saveUser}
+          onCancel={() => setConfirmSave(false)}
+        />
+      )}
     </Modal>
   );
 }

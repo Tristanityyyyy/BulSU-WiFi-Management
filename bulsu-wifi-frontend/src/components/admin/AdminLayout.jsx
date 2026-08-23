@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Radio, KeyRound,
@@ -5,6 +6,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../theme";
 import adminApi from "./adminApi";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 // Grouped by what campus IT actually does with each screen.
 const NAV_GROUPS = [
@@ -61,8 +63,10 @@ export default function AdminLayout() {
   const { theme, setTheme } = useTheme();
   const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const toggleTheme = () => setTheme(isDark ? "light" : "dark");
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const handleLogout = async () => {
+    setConfirmLogout(false);
     try {
       await adminApi.post("/session/disconnect");
     } catch {
@@ -129,7 +133,7 @@ export default function AdminLayout() {
             {isDark ? "Light mode" : "Dark mode"}
           </button>
           <button
-            onClick={handleLogout}
+            onClick={() => setConfirmLogout(true)}
             className="relative w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium text-pink-100/50 hover:bg-white/5 hover:text-pink-50 transition-all"
           >
             <LogOut size={16} strokeWidth={2} /> Log out
@@ -173,6 +177,16 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+
+      {confirmLogout && (
+        <ConfirmDialog
+          title="Log out of the admin panel?"
+          message="Your admin session ends here — you will need to sign in again to get back in."
+          confirmLabel="Log out"
+          onConfirm={handleLogout}
+          onCancel={() => setConfirmLogout(false)}
+        />
+      )}
     </div>
   );
 }

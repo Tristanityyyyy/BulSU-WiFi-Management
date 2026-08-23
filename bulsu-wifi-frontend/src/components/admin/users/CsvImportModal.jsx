@@ -1,5 +1,5 @@
 import { Upload, X, CheckCircle2, AlertTriangle } from "lucide-react";
-import ConfirmDialog from "../ConfirmDialog";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 import Modal from "../../ui/Modal";
 
 // Renders the preview / importing / done modals for the CSV/XLSX roster import flow.

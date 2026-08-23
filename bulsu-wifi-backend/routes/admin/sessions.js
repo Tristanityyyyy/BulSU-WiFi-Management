@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../../db');
 const { buildBrandedWorkbook, sendWorkbook } = require('../../utils/xlsxBrand');
 const { forceDisconnectSession, forceDisconnectGuestSession } = require('../../utils/sessions');
+const { logAudit, ACTIONS } = require('../../utils/auditLog');
 
 const STATUS_COLORS = {
   active: 'FF16A34A',
@@ -186,6 +187,63 @@ router.patch('/guests/:id/disconnect', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to disconnect guest session.' });
+  }
+});
+
+// DELETE /api/admin/sessions/:id — remove one finished session from the log.
+// An active session is refused: its row is what the disconnect path works from,
+// and it owns a live RouterOS grant through active_queues, so it has to be
+// disconnected first. Once it's finished, active_queues cascades on delete and
+// nothing is left stranded on the router.
+router.delete('/:id', async (req, res) => {
+  try {
+    const [[session]] = await db.query(
+      `SELECT s.id, s.status, s.login_time, u.full_name FROM sessions s
+       LEFT JOIN users u ON s.user_id = u.id WHERE s.id = ?`,
+      [req.params.id]
+    );
+    if (!session) return res.status(404).json({ message: 'Session not found.' });
+    if (session.status === 'active')
+      return res.status(409).json({ message: 'Disconnect this session before deleting it.' });
+
+    await db.query('DELETE FROM sessions WHERE id = ?', [req.params.id]);
+    // Session logs are the record of who was on the network and when, so an
+    // admin removing one leaves a trace of its own.
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'session',
+      target_name: session.full_name || `Session #${session.id}`,
+      description: `Deleted a session log for ${session.full_name || 'a removed account'}`,
+      metadata: { session_id: session.id, status: session.status, login_time: session.login_time },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete session.' });
+  }
+});
+
+// DELETE /api/admin/sessions/guests/:id — guest-side equivalent, same rule.
+router.delete('/guests/:id', async (req, res) => {
+  try {
+    const [[session]] = await db.query(
+      'SELECT id, guest_name, status, login_time FROM guest_sessions WHERE id = ?',
+      [req.params.id]
+    );
+    if (!session) return res.status(404).json({ message: 'Guest session not found.' });
+    if (session.status === 'active')
+      return res.status(409).json({ message: 'Disconnect this guest session before deleting it.' });
+
+    await db.query('DELETE FROM guest_sessions WHERE id = ?', [req.params.id]);
+    await logAudit(req, {
+      action: ACTIONS.DELETE,
+      target_type: 'guest_session',
+      target_name: session.guest_name || `Guest session #${session.id}`,
+      description: `Deleted a guest session log for ${session.guest_name || 'an unnamed guest'}`,
+      metadata: { session_id: session.id, status: session.status, login_time: session.login_time },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to delete guest session.' });
   }
 });
 

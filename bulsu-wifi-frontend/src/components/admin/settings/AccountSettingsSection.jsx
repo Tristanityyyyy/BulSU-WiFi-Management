@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Save, UserCog, Eye, EyeOff } from "lucide-react";
 import adminApi from "../adminApi";
-import ConfirmDialog from "../ConfirmDialog";
+import ConfirmDialog from "../../ui/ConfirmDialog";
+import SuccessDialog from "../../ui/SuccessDialog";
 import LoadingSpinner from "../../ui/LoadingSpinner";
 import SectionCard from "./SectionCard";
 
@@ -13,6 +14,7 @@ export default function AccountSettingsSection() {
   const [accountError, setAccountError] = useState("");
   const [accountSuccess, setAccountSuccess] = useState("");
   const [showPasswords, setShowPasswords] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
 
   useEffect(() => {
     adminApi.get("/admin/settings/account")
@@ -20,13 +22,20 @@ export default function AccountSettingsSection() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleAccountSubmit = async (e) => {
+  // Validation first, then the question — no point asking about a save that the
+  // mismatch check is going to reject anyway.
+  const handleAccountSubmit = (e) => {
     e.preventDefault();
     setAccountError("");
     if (accountForm.new_password && accountForm.new_password !== accountForm.confirm_password) {
       setAccountError("New password and confirmation do not match.");
       return;
     }
+    setConfirmSave(true);
+  };
+
+  const saveAccount = async () => {
+    setConfirmSave(false);
     setAccountSaving(true);
     try {
       await adminApi.put("/admin/settings/account", {
@@ -105,16 +114,21 @@ export default function AccountSettingsSection() {
           </button>
         </div>
       </form>
-      {accountSuccess && (
+      {confirmSave && (
         <ConfirmDialog
-          title="Success"
-          message={accountSuccess}
-          confirmLabel="OK"
+          title="Save account changes?"
+          message={
+            accountForm.new_password
+              ? "Your details will be updated and your password replaced — use the new one the next time you log in."
+              : "Your account details will be updated."
+          }
+          confirmLabel="Save Account"
           danger={false}
-          onConfirm={() => setAccountSuccess("")}
-          onCancel={() => setAccountSuccess("")}
+          onConfirm={saveAccount}
+          onCancel={() => setConfirmSave(false)}
         />
       )}
+      {accountSuccess && <SuccessDialog message={accountSuccess} onClose={() => setAccountSuccess("")} />}
     </SectionCard>
   );
 }

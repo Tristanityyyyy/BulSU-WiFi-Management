@@ -15,7 +15,8 @@ import useTrashList from "./users/useTrashList";
 import UserFilterBar from "./users/UserFilterBar";
 import AdminTable from "./AdminTable";
 import SelectAllHeader from "./SelectAllHeader";
-import ConfirmDialog from "./ConfirmDialog";
+import ConfirmDialog from "../ui/ConfirmDialog";
+import SuccessDialog from "../ui/SuccessDialog";
 
 const PAGE_SIZE = 20;
 
@@ -338,22 +339,13 @@ export default function AdminUsers() {
             setModal(null);
             userList.fetchUsers(userList.page);
             if (message) setSuccessMessage(message);
-            else if (wasAdd) setSuccessMessage("User created successfully.");
+            else setSuccessMessage(wasAdd ? "User created successfully." : "User updated successfully.");
           }}
           onError={(message) => setErrorMessage(message)}
         />
       )}
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doAction} onCancel={() => setConfirm(null)} />}
-      {successMessage && (
-        <ConfirmDialog
-          title="Success"
-          message={successMessage}
-          confirmLabel="OK"
-          danger={false}
-          onConfirm={() => setSuccessMessage("")}
-          onCancel={() => setSuccessMessage("")}
-        />
-      )}
+      {successMessage && <SuccessDialog message={successMessage} onClose={() => setSuccessMessage("")} />}
       {errorMessage && (
         <ConfirmDialog
           title="Unable to save"

@@ -3,7 +3,8 @@ import { QRCodeCanvas } from "qrcode.react";
 import { QrCode, Ban, Printer, Download, Pencil, Trash2, Eye } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
-import ConfirmDialog from "./ConfirmDialog";
+import ConfirmDialog from "../ui/ConfirmDialog";
+import SuccessDialog from "../ui/SuccessDialog";
 import Modal from "../ui/Modal";
 
 const PAGE_SIZE = 20;
@@ -90,15 +91,21 @@ function EditGuestModal({ guest, onClose, onSaved }) {
   const [startsAt, setStartsAt] = useState(toLocalInputValue(guest.starts_at));
   const [expiresAt, setExpiresAt] = useState(toLocalInputValue(guest.expires_at));
   const [saving, setSaving] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
+    setConfirmSave(true);
+  };
+
+  const saveWindow = async () => {
+    setConfirmSave(false);
     setSaving(true);
     setError("");
     try {
       await adminApi.put(`/admin/guests/${guest.id}`, { starts_at: startsAt, expires_at: expiresAt });
-      onSaved();
+      onSaved("Guest access window updated.");
     } catch (err) {
       setError(err.response?.data?.message || "Failed to update.");
       setSaving(false);
@@ -133,6 +140,17 @@ function EditGuestModal({ guest, onClose, onSaved }) {
           </button>
         </div>
       </form>
+
+      {confirmSave && (
+        <ConfirmDialog
+          title="Save this access window?"
+          message={`${guest.guest_name || "This guest"}'s pass will only work between the times you set. A guest currently online outside the new window is dropped at the next sweep.`}
+          confirmLabel="Save Window"
+          danger={false}
+          onConfirm={saveWindow}
+          onCancel={() => setConfirmSave(false)}
+        />
+      )}
     </Modal>
   );
 }
@@ -155,6 +173,7 @@ export default function AdminGuests() {
   const [confirm, setConfirm] = useState(null);
   const [generateError, setGenerateError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const fetchGuests = async (p = page) => {
     setLoading(true);
@@ -206,6 +225,7 @@ export default function AdminGuests() {
         if (res.data?.warning) setActionError(res.data.warning);
       }
       if (action === "delete") await adminApi.delete(`/admin/guests/${id}`);
+      setSuccess(action === "delete" ? "Guest code deleted." : "Guest QR code revoked.");
       fetchGuests(page);
     } catch (err) {
       setActionError(err.response?.data?.message || `Failed to ${action} guest.`);
@@ -322,11 +342,12 @@ export default function AdminGuests() {
         <EditGuestModal
           guest={editGuest}
           onClose={() => setEditGuest(null)}
-          onSaved={() => { setEditGuest(null); fetchGuests(page); }}
+          onSaved={(message) => { setEditGuest(null); fetchGuests(page); setSuccess(message); }}
         />
       )}
 
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doConfirmedAction} onCancel={() => setConfirm(null)} />}
+      {success && <SuccessDialog message={success} onClose={() => setSuccess("")} />}
     </div>
   );
 }

@@ -3,7 +3,8 @@ import { Save, Gauge, Database, Timer, Smartphone, GraduationCap, Users2, Calend
 import adminApi from "./adminApi";
 import { useTheme } from "../../theme";
 import LoadingSpinner from "../ui/LoadingSpinner";
-import Toast from "../ui/Toast";
+import ConfirmDialog from "../ui/ConfirmDialog";
+import SuccessDialog from "../ui/SuccessDialog";
 import NetworkSettingsSection from "./settings/NetworkSettingsSection";
 import CatalogSettingsSection from "./settings/CatalogSettingsSection";
 import AccountSettingsSection from "./settings/AccountSettingsSection";
@@ -72,6 +73,7 @@ export default function AdminSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [activeSection, setActiveSection] = useState("bandwidth");
@@ -94,8 +96,16 @@ export default function AdminSettings() {
     setSaved(false);
   };
 
-  const handleSave = async (e) => {
+  // The form's submit only asks the question; the save itself runs once the
+  // admin answers it. These settings change what every account on the network
+  // is allowed to do, so they don't get applied on a stray Enter keypress.
+  const handleSubmit = (e) => {
     e.preventDefault();
+    setConfirmSave(true);
+  };
+
+  const handleSave = async () => {
+    setConfirmSave(false);
     setSaving(true);
     setError("");
     try {
@@ -176,7 +186,7 @@ export default function AdminSettings() {
         {/* Active section content */}
         <div className="flex-1 min-w-0 w-full">
           {isNetworkSection && (
-            <NetworkSettingsSection activeSection={activeSection} settings={settings} onChange={handleChange} onSubmit={handleSave} />
+            <NetworkSettingsSection activeSection={activeSection} settings={settings} onChange={handleChange} onSubmit={handleSubmit} />
           )}
 
           {activeSection === "display" && (
@@ -216,7 +226,17 @@ export default function AdminSettings() {
         </div>
       </div>
 
-      {saved && <Toast message="Settings saved successfully." onDismiss={() => setSaved(false)} />}
+      {confirmSave && (
+        <ConfirmDialog
+          title="Save these settings?"
+          message="The new limits take effect for sessions started from now on. Sessions already running keep the limits they were given at login."
+          confirmLabel="Save Settings"
+          danger={false}
+          onConfirm={handleSave}
+          onCancel={() => setConfirmSave(false)}
+        />
+      )}
+      {saved && <SuccessDialog message="Settings saved successfully." onClose={() => setSaved(false)} />}
     </div>
   );
 }

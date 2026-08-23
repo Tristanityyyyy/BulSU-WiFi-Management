@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Siren, PowerOff } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
-import ConfirmDialog from "./ConfirmDialog";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import Toast from "../ui/Toast";
 import useEmergencyActivation from "./emergency/useEmergencyActivation";
 import ActivateEmergencyModal from "./emergency/ActivateEmergencyModal";
