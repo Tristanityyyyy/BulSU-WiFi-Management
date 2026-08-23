@@ -13,6 +13,7 @@ const { startTrashPurgeSweeper } = require("./jobs/userTrashPurge");
 const { startDataUsageMeter } = require("./jobs/dataUsageMeter");
 const { startSessionPresenceSweeper } = require("./jobs/sessionPresence");
 const { startOrphanGrantSweeper } = require("./jobs/orphanGrants");
+const { startSessionNoticeSweeper } = require("./jobs/sessionNotices");
 
 const app = express();
 
@@ -31,6 +32,7 @@ startTrashPurgeSweeper();
 startDataUsageMeter();
 startSessionPresenceSweeper();
 startOrphanGrantSweeper();
+startSessionNoticeSweeper();
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

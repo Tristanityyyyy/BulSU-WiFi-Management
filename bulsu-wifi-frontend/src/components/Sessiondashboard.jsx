@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Wifi } from "lucide-react";
+import { Wifi, X } from "lucide-react";
 import axios from "axios";
 import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
@@ -11,7 +11,9 @@ import FeedbackModal from "./feedback/FeedbackModal";
 
 import { API_BASE } from "../config/api";
 const POLL_INTERVAL_MS = 20000;
-const LOW_DATA_THRESHOLD_MB = 200;
+// Only a fallback for the first render, before /session/status has answered with
+// the figure an admin actually configured.
+const FALLBACK_LOW_DATA_MB = 200;
 
 function formatTime(totalSeconds) {
   if (totalSeconds == null || totalSeconds < 0) totalSeconds = 0;
@@ -36,10 +38,50 @@ export default function SessionDashboard() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const hasWarnedLowData = useRef(false);
-  const hasWarnedLowTime = useRef(false);
+  // Warnings are decided on the server now, against thresholds an admin can move,
+  // and delivered as rows the user sees wherever they next look. The dashboard
+  // used to make that call itself with a hardcoded 200 MB and a browser popup
+  // that, on iOS, essentially never fired — and it never warned about time at all.
+  const [notices, setNotices] = useState([]);
+  const announced = useRef(new Set());
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  const fetchNotices = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/session/notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const unread = (res.data?.notifications || []).filter((n) => !n.is_read);
+      setNotices(unread);
+      // Mirror anything new to a browser notification as well, for a user who
+      // has granted permission and is looking at another tab. Best-effort only:
+      // the in-page banner below is the delivery that always works.
+      for (const notice of unread) {
+        if (announced.current.has(notice.id)) continue;
+        announced.current.add(notice.id);
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("BulSU Wi-Fi", { body: notice.message });
+        }
+      }
+    } catch {
+      // A notification poll must never disturb the session view.
+    }
+  };
+
+  const dismissNotice = async (id) => {
+    setNotices((current) => current.filter((n) => n.id !== id));
+    try {
+      await axios.post(
+        `${API_BASE}/session/notifications/read`,
+        { ids: [id] },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch {
+      // Dismissed locally either way; the next poll will restore it if the
+      // mark-as-read didn't land.
+    }
+  };
 
   const fetchStatus = async () => {
     try {
@@ -49,6 +91,7 @@ export default function SessionDashboard() {
       setSession(res.data);
       setSecondsLeft(res.data.expiresInSec);
       setError("");
+      fetchNotices();
     } catch (err) {
       // A poll that lands after the user disconnected finds the token already
       // gone and 401s. That's expected, not a failure: bouncing to the login
@@ -86,20 +129,6 @@ export default function SessionDashboard() {
     }, 1000);
     return () => clearInterval(tick);
   }, [secondsLeft != null]);
-
-  useEffect(() => {
-    if (!session || session.dataLimitMB == null) return; // null = unlimited, nothing to warn about
-    const remainingMB = session.dataLimitMB - session.dataUsedMB;
-    if (remainingMB <= LOW_DATA_THRESHOLD_MB && !hasWarnedLowData.current) {
-      hasWarnedLowData.current = true;
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification("Low data warning", {
-          body: `Only ${formatData(remainingMB)} of data left on your BulSU Wi-Fi session.`,
-        });
-      }
-    }
-    if (remainingMB > LOW_DATA_THRESHOLD_MB) hasWarnedLowData.current = false;
-  }, [session]);
 
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
@@ -158,7 +187,8 @@ export default function SessionDashboard() {
   // Share of the allowance already spent. Unlimited spends nothing, so its ring
   // stays full rather than reading as an empty tank.
   const dataPct = isUnlimited ? 0 : Math.min(100, (dataUsedMB / dataLimitMB) * 100);
-  const isLowData = !isUnlimited && remainingMB <= LOW_DATA_THRESHOLD_MB;
+  const lowDataMB = session?.lowDataMB ?? FALLBACK_LOW_DATA_MB;
+  const isLowData = !isUnlimited && lowDataMB > 0 && remainingMB <= lowDataMB;
   const isLowTime = secondsLeft != null && secondsLeft <= 300;
 
   const radius = 54;
@@ -185,6 +215,27 @@ export default function SessionDashboard() {
 
         <AlertBanner message={error} />
 
+        {notices.length > 0 && (
+          <ul className="mb-5 space-y-2">
+            {notices.map((notice) => (
+              <li
+                key={notice.id}
+                className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2"
+              >
+                <span className="flex-1 text-xs text-amber-900">{notice.message}</span>
+                <button
+                  type="button"
+                  onClick={() => dismissNotice(notice.id)}
+                  aria-label="Dismiss"
+                  className="shrink-0 text-amber-500 hover:text-amber-700 transition"
+                >
+                  <X size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <div className="flex flex-col items-center mb-6">
           <div className="relative w-36 h-36">
             <svg className="w-36 h-36 -rotate-90" viewBox="0 0 128 128">
@@ -208,7 +259,7 @@ export default function SessionDashboard() {
           </div>
           {isLowData && (
             <p className="mt-3 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
-              Heads up — under {LOW_DATA_THRESHOLD_MB} MB of data left.
+              Heads up — under {lowDataMB} MB of data left.
             </p>
           )}
         </div>

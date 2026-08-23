@@ -49,6 +49,27 @@ function maxLimitMatches(actual, limits) {
   return a.length === 2 && b.length === 2 && a[0] === b[0] && a[1] === b[1];
 }
 
+// Simple-queue priority, 1 (served first) to 8 (default, served last). A ceiling
+// only decides how fast a client may go when there is capacity to spare; priority
+// is what decides who gets served when there isn't — which is the whole point of
+// an emergency priority, and the reason it is set alongside the ceiling rather
+// than instead of it. RouterOS spells it "<upload>/<download>".
+const DEFAULT_QUEUE_PRIORITY = 8;
+
+function toPriority(limits) {
+  const raw = Number(limits && limits.priority);
+  const value = Number.isFinite(raw) && raw >= 1 && raw <= 8 ? Math.round(raw) : DEFAULT_QUEUE_PRIORITY;
+  return `${value}/${value}`;
+}
+
+// True when both the ceiling and the priority already on the router are what
+// `limits` asks for, so the meter only rewrites a queue that has actually drifted.
+function queueMatchesLimits(state, limits) {
+  if (!state) return false;
+  const priorityMatches = !state.priority || state.priority === toPriority(limits);
+  return maxLimitMatches(state.maxLimit, limits) && priorityMatches;
+}
+
 async function withConnection(fn) {
   const conn = new RouterOSAPI({
     host: process.env.MIKROTIK_HOST,
@@ -122,7 +143,7 @@ async function grantAccess(rawIp, id, kind = "session", limits = null) {
       } else {
         await conn.write("/ip/firewall/address-list/add", ["=list=bulsu-authorized", `=address=${ip}`, `=comment=${tag}`]);
       }
-      const added = await conn.write("/queue/simple/add", [`=name=${tag}`, `=target=${ip}/32`, `=max-limit=${toMaxLimit(limits)}`, `=comment=${tag}`]);
+      const added = await conn.write("/queue/simple/add", [`=name=${tag}`, `=target=${ip}/32`, `=max-limit=${toMaxLimit(limits)}`, `=priority=${toPriority(limits)}`, `=comment=${tag}`]);
       return { queueId: added[0].ret };
     });
   } catch (err) {
@@ -186,7 +207,7 @@ async function readQueueState(queueId) {
       const rows = await conn.write("/queue/simple/print", [`?.id=${queueId}`]);
       if (!rows[0] || !rows[0].bytes) return null;
       const [up, down] = rows[0].bytes.split("/").map(Number);
-      return { bytes: up + down, maxLimit: rows[0]["max-limit"] || "" };
+      return { bytes: up + down, maxLimit: rows[0]["max-limit"] || "", priority: rows[0].priority || "" };
     });
   } catch (err) {
     console.error("MikroTik readQueueState failed:", err.message);
@@ -338,7 +359,7 @@ async function readNetworkPresence() {
   }
 }
 
-// Re-applies a role's ceiling to a queue that already exists, so an admin
+// Re-applies a role's ceiling and priority to a queue that already exists, so an admin
 // editing Settings → Network takes effect on sessions that are already live
 // rather than only on the next login. Best-effort like everything else here:
 // a failure just means the old ceiling stands until the next tick.
@@ -346,7 +367,7 @@ async function setQueueLimit(queueId, limits) {
   if (!ENABLED) return false;
   try {
     return await withConnection(async (conn) => {
-      await conn.write("/queue/simple/set", [`=.id=${queueId}`, `=max-limit=${toMaxLimit(limits)}`]);
+      await conn.write("/queue/simple/set", [`=.id=${queueId}`, `=max-limit=${toMaxLimit(limits)}`, `=priority=${toPriority(limits)}`]);
       return true;
     });
   } catch (err) {
@@ -355,4 +376,4 @@ async function setQueueLimit(queueId, limits) {
   }
 }
 
-module.exports = { grantAccess, revokeAccess, readQueueState, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, maxLimitMatches, isOursToReuse, ENABLED };
+module.exports = { grantAccess, revokeAccess, readQueueState, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, DEFAULT_QUEUE_PRIORITY, ENABLED };

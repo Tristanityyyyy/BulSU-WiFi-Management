@@ -1,13 +1,14 @@
 const db = require("../db");
 const { getSettings, getRoleBandwidthMap } = require("../utils/settings");
-const { readQueueState, setQueueLimit, grantAccess, maxLimitMatches, ENABLED } = require("../utils/routeros");
+const { readQueueState, setQueueLimit, grantAccess, queueMatchesLimits, ENABLED } = require("../utils/routeros");
 const { endSession, endGuestSession } = require("../utils/sessions");
 const { CAPPED_ROLES } = require("../utils/constants");
+const { EMERGENCY_LIMITS, getActivePriorities } = require("../utils/emergency");
 
 const GB = 1024 * 1024 * 1024;
 // Phase 1: pull each active session's Simple Queue byte counter, accrue the
 // delta since last poll into that account's usage for today.
-async function meterActiveQueues(bandwidth) {
+async function meterActiveQueues(bandwidth, priorities) {
   const [rows] = await db.query(
     `SELECT aq.session_id, aq.user_id, aq.ip_address, aq.queue_id, aq.last_bytes, u.role
      FROM active_queues aq
@@ -16,7 +17,11 @@ async function meterActiveQueues(bandwidth) {
   );
 
   for (const row of rows) {
-    const limits = bandwidth[row.role];
+    // An active emergency priority replaces the role's entitlement outright.
+    // Because the drift check below re-applies whatever this resolves to, a
+    // priority activated in the admin panel lands on the live queue within one
+    // tick — and lifts again the same way when it is deactivated.
+    const limits = priorities.users.has(row.user_id) ? EMERGENCY_LIMITS : bandwidth[row.role];
     const state = await readQueueState(row.queue_id);
     if (state === undefined) continue; // router unreachable this cycle — retry next tick
 
@@ -34,9 +39,10 @@ async function meterActiveQueues(bandwidth) {
       continue;
     }
 
-    // An admin can change Settings → Network mid-session; re-apply the ceiling
-    // so it lands on live sessions within one tick instead of at next login.
-    if (state.maxLimit && !maxLimitMatches(state.maxLimit, limits)) {
+    // An admin can change Settings → Network (or grant an emergency priority)
+    // mid-session; re-apply so it lands on live sessions within one tick instead
+    // of at next login.
+    if (state.maxLimit && !queueMatchesLimits(state, limits)) {
       await setQueueLimit(row.queue_id, limits);
     }
 
@@ -63,7 +69,7 @@ async function meterActiveQueues(bandwidth) {
 // Phase 2: account-wide cutoff — a role can have multiple simultaneous
 // sessions/queues (max_devices > 1), so the cap check and cutoff must cover
 // every active session on the account, not just whichever queue tripped it.
-async function enforceDailyCaps() {
+async function enforceDailyCaps(priorities) {
   const [overUsers] = await db.query(
     `SELECT du.user_id, du.bytes_used, u.role
      FROM data_usage du JOIN users u ON u.id = du.user_id
@@ -74,6 +80,9 @@ async function enforceDailyCaps() {
 
   const caps = await getSettings(CAPPED_ROLES.map((r) => `data_cap_gb_${r}`));
   for (const u of overUsers) {
+    // Cutting off the very account an emergency priority was granted to would
+    // defeat the point of granting it, so the cap is waived for the duration.
+    if (priorities.users.has(u.user_id)) continue;
     const capGb = Number(caps[`data_cap_gb_${u.role}`]);
     if (!capGb || capGb <= 0) continue; // 0 / unset = unlimited
     if (u.bytes_used < capGb * GB) continue;
@@ -92,13 +101,13 @@ async function enforceDailyCaps() {
 // accrues on the guest_session itself (not a per-day data_usage row) and the cap
 // is the QR's own total `data_limit_gb`, not a per-role daily cap. Both accrual
 // and cutoff happen together per session, since a guest has exactly one queue.
-async function meterAndCapGuests(limits) {
+async function meterAndCapGuests(roleLimits, priorities) {
   // No `queue_id IS NOT NULL` filter: a session whose grant failed at verify has
   // a NULL queue_id, and skipping those meant it was never metered, never capped
   // and never repaired — an unlimited pass showing 0 MB in the UI. It falls into
   // the same self-heal branch below as a queue that vanished.
   const [rows] = await db.query(
-    `SELECT gs.id, gs.ip_address, gs.queue_id, gs.last_bytes, gs.bytes_used,
+    `SELECT gs.id, gs.guest_id, gs.ip_address, gs.queue_id, gs.last_bytes, gs.bytes_used,
             g.data_limit_gb, g.expires_at
        FROM guest_sessions gs
        JOIN guests g ON g.id = gs.guest_id
@@ -106,6 +115,8 @@ async function meterAndCapGuests(limits) {
   );
 
   for (const row of rows) {
+    const prioritised = priorities.guests.has(row.guest_id);
+    const limits = prioritised ? EMERGENCY_LIMITS : roleLimits;
     const state = row.queue_id ? await readQueueState(row.queue_id) : null;
     if (state === undefined) continue; // router unreachable this cycle — retry next tick
 
@@ -125,7 +136,7 @@ async function meterAndCapGuests(limits) {
       continue;
     }
 
-    if (state.maxLimit && !maxLimitMatches(state.maxLimit, limits)) {
+    if (state.maxLimit && !queueMatchesLimits(state, limits)) {
       await setQueueLimit(row.queue_id, limits);
     }
 
@@ -142,7 +153,7 @@ async function meterAndCapGuests(limits) {
     );
     if (delta > 0) await db.query("UPDATE guest_sessions SET last_seen=NOW() WHERE id=?", [row.id]);
 
-    const capGb = Number(row.data_limit_gb);
+    const capGb = prioritised ? 0 : Number(row.data_limit_gb);
     if (capGb > 0) {
       // Read the stored total back so the cutoff is based on what's committed
       // rather than the snapshot this tick started with.
@@ -158,9 +169,11 @@ async function runDataUsageMeter() {
   if (!ENABLED) return;
   // One settings read per tick covers every session below.
   const bandwidth = await getRoleBandwidthMap([...CAPPED_ROLES, "guest"]);
-  await meterActiveQueues(bandwidth);
-  await enforceDailyCaps();
-  await meterAndCapGuests(bandwidth.guest);
+  // One priority read per tick, for the same reason as the settings read above.
+  const priorities = await getActivePriorities();
+  await meterActiveQueues(bandwidth, priorities);
+  await enforceDailyCaps(priorities);
+  await meterAndCapGuests(bandwidth.guest, priorities);
 }
 
 function startDataUsageMeter(intervalMs = 2 * 60 * 1000) {

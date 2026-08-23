@@ -1,4 +1,4 @@
-import { Gauge, Database, Timer, Smartphone, WifiOff } from "lucide-react";
+import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren } from "lucide-react";
 import SectionCard from "./SectionCard";
 import { ROLE_LABELS } from "../../../constants/roles";
 
@@ -138,6 +138,51 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
                 className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent w-20 transition"
               />
               <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">minutes off the network</span>
+            </div>
+          </SectionCard>
+        </div>
+      )}
+      {activeSection === "alerts" && (
+        <div className="space-y-4">
+          <SectionCard
+            icon={<BellRing size={16} />}
+            title="Low Balance Warnings"
+            hint="How close to the edge a user gets before the system tells them. The warning is sent once per day for data and once per session for time, and appears on their dashboard. 0 turns a warning off.">
+            <div className="space-y-3">
+              {[
+                { key: "notify_low_data_mb", label: "Warn when data left drops below", unit: "MB" },
+                { key: "notify_low_time_min", label: "Warn when session time left drops below", unit: "minutes" },
+              ].map((field) => (
+                <div key={field.key} className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-gray-600 dark:text-gray-300 flex-1 min-w-[180px]">{field.label}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={settings[field.key] ?? ""}
+                    onChange={(e) => onChange(field.key, e.target.value)}
+                    className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent w-20 transition"
+                  />
+                  <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0 w-16">{field.unit}</span>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            icon={<Siren size={16} />}
+            title="Emergency Priority"
+            hint="While a priority is active, that account is served first on the network, is not speed-limited, and its daily data cap is waived. Turning this off keeps the Emergency page working as a record but stops it changing anything on the router.">
+            <div className="inline-flex rounded-xl border border-pink-200 dark:border-pink-900 overflow-hidden">
+              {[{ value: "true", label: "ON" }, { value: "false", label: "OFF" }].map((opt) => (
+                <button key={opt.value} type="button" onClick={() => onChange("emergency_priority_mode", opt.value)}
+                  className={`px-4 py-1.5 text-xs font-semibold transition ${
+                    (settings.emergency_priority_mode ?? "true") === opt.value
+                      ? "bg-pink-600 text-white"
+                      : "bg-white dark:bg-wine-900 text-gray-600 dark:text-gray-300 hover:bg-pink-50 dark:hover:bg-pink-950/40"
+                  }`}>
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </SectionCard>
         </div>

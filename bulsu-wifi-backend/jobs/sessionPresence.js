@@ -1,9 +1,8 @@
 const db = require("../db");
-const { getSettings } = require("../utils/settings");
+const { getSettings, getRoleSessionMinutesMap } = require("../utils/settings");
 const { readNetworkPresence, ENABLED } = require("../utils/routeros");
 const { endSession, endGuestSession } = require("../utils/sessions");
 const { normalizeIp, isGrantableIp } = require("../utils/ip");
-const { DEFAULT_SESSION_TIMEOUT_MIN } = require("../utils/constants");
 
 // How long a device may stay unseen by the router before its session is ended.
 // Not zero, and not one tick: a phone dropping off for a few seconds while it
@@ -109,18 +108,15 @@ async function sweepTimedOutSessions() {
   );
   if (!rows.length) return 0;
 
-  const roles = [...new Set(rows.map((r) => r.role).filter(Boolean))];
-  const settings = await getSettings(roles.map((role) => `session_timeout_${role}`));
+  // A session whose account was hard-deleted keeps its row (the FK is ON DELETE
+  // SET NULL) and still needs sweeping, so an absent role resolves to the student
+  // window rather than leaving the session active in perpetuity.
+  const roles = [...new Set(rows.map((r) => r.role || "student"))];
+  const windows = await getRoleSessionMinutesMap(roles);
 
   let ended = 0;
   for (const row of rows) {
-    // A session whose account was hard-deleted keeps its row (the FK is ON
-    // DELETE SET NULL) and still needs sweeping — fall back to the student
-    // window rather than leaving it active in perpetuity.
-    const configured = Number(settings[`session_timeout_${row.role}`]);
-    const minutes = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_SESSION_TIMEOUT_MIN[row.role] || DEFAULT_SESSION_TIMEOUT_MIN.student;
+    const minutes = windows[row.role || "student"];
     if (Date.now() - new Date(row.login_time).getTime() < minutes * 60 * 1000) continue;
     if (await endSession(row.id, { reason: "timeout", status: "timeout" })) ended++;
   }

@@ -2,24 +2,12 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
-const { getSettings } = require("../utils/settings");
+const { getRoleSessionMinutes } = require("../utils/settings");
+const { getNoticeThresholds } = require("../jobs/sessionNotices");
 const { endSession } = require("../utils/sessions");
-const { DEFAULT_SESSION_TIMEOUT_MIN } = require("../utils/constants");
 const { getAllowance } = require("../utils/allowance");
 const { readNetworkPresence } = require("../utils/routeros");
 const { normalizeIp, isGrantableIp } = require("../utils/ip");
-
-// The role's configured session window, falling back to the shared default when
-// an admin has never saved Settings → Network. Both reads below need it: the
-// dashboard countdown, and the device-recognised view that shows the same figure
-// without a token.
-async function sessionTimeoutMinutes(role) {
-  const settings = await getSettings([`session_timeout_${role}`]);
-  const configured = Number(settings[`session_timeout_${role}`]);
-  return Number.isFinite(configured) && configured > 0
-    ? configured
-    : DEFAULT_SESSION_TIMEOUT_MIN[role] || DEFAULT_SESSION_TIMEOUT_MIN.student;
-}
 
 // "2023123456" -> "••••••3456". Confirms whose figures these are to the person
 // holding the device, without printing an account number in full.
@@ -71,7 +59,7 @@ router.get("/me", async (req, res) => {
       if (!present) return res.status(404).json({ message: "This device isn't connected." });
     }
 
-    const timeoutMinutes = await sessionTimeoutMinutes(session.role);
+    const timeoutMinutes = await getRoleSessionMinutes(session.role);
     const elapsedSec = Math.floor((Date.now() - new Date(session.login_time).getTime()) / 1000);
 
     res.json({
@@ -106,18 +94,66 @@ router.get("/status", verifyToken, async (req, res) => {
     // Both figures come from the same helpers the unauthenticated views use, so
     // the countdown here can't quote a window the sweeper doesn't enforce, nor a
     // remaining figure that disagrees with the allowance page.
-    const timeoutMinutes = await sessionTimeoutMinutes(user.role);
+    const timeoutMinutes = await getRoleSessionMinutes(user.role);
     const elapsedSec = Math.floor((Date.now() - new Date(session.login_time).getTime()) / 1000);
     const { dataUsedMB, dataLimitMB } = await getAllowance({ id: req.user.id, role: user.role });
+    const { lowDataMB } = await getNoticeThresholds();
 
     res.json({
       username: user.student_number,
       expiresInSec: Math.max(0, timeoutMinutes * 60 - elapsedSec),
       dataUsedMB,
       dataLimitMB,
+      lowDataMB,
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to load session status." });
+  }
+});
+
+// GET /api/session/notifications — the user's own messages.
+//
+// The notifications table has been written to for a long time (the admin
+// compose form, and now the low-data and session-ending warnings) with nothing
+// anywhere that could read it back: no user-facing endpoint existed, so every
+// message ever "sent" was filed and never delivered. This is the delivery.
+router.get("/notifications", verifyToken, async (req, res) => {
+  try {
+    const [notifications] = await db.query(
+      `SELECT id, type, message, is_read, created_at
+         FROM notifications WHERE user_id = ?
+        ORDER BY created_at DESC LIMIT 20`,
+      [req.user.id]
+    );
+    res.json({
+      notifications,
+      unread: notifications.filter((n) => !n.is_read).length,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load notifications." });
+  }
+});
+
+// POST /api/session/notifications/read — marks messages read.
+//
+// Scoped to the caller's own rows by the WHERE clause, not by trusting the ids
+// in the body: passing somebody else's id simply matches nothing.
+router.post("/notifications/read", verifyToken, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : null;
+    if (ids && !ids.length) return res.json({ marked: 0 });
+    const [result] = ids
+      ? await db.query(
+          `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND id IN (?)`,
+          [req.user.id, ids]
+        )
+      : await db.query(
+          `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`,
+          [req.user.id]
+        );
+    res.json({ marked: result.affectedRows });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to update notifications." });
   }
 });
 

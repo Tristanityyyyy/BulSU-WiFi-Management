@@ -13,6 +13,7 @@ const { normalizeIp } = require("../utils/ip");
 // (the `settings` table only ever holds keys that were explicitly saved).
 const { DEFAULT_SESSION_TIMEOUT_MIN, CAPPED_ROLES } = require("../utils/constants");
 const { getAllowance } = require("../utils/allowance");
+const { hasActivePriority } = require("../utils/emergency");
 
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
 
@@ -65,7 +66,9 @@ router.post("/login", async (req, res) => {
           "SELECT bytes_used FROM data_usage WHERE user_id=? AND usage_date=CURDATE()",
           [user.id]
         );
-        if ((usage?.bytes_used || 0) >= capGb * 1024 ** 3) {
+        // An emergency priority waives the cap, so it must waive this gate too —
+        // otherwise the boost would only reach people who hadn't needed it yet.
+        if ((usage?.bytes_used || 0) >= capGb * 1024 ** 3 && !(await hasActivePriority(user.id))) {
           return res.status(403).json({ message: "Daily data limit reached. Access resumes tomorrow." });
         }
       }

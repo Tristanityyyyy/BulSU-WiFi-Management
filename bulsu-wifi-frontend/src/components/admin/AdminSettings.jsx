@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Save, Gauge, Database, Timer, Smartphone, GraduationCap, Users2, CalendarRange, Layers, X, SunMoon, Sun, Moon, Monitor, UserCog } from "lucide-react";
+import { Save, Gauge, Database, Timer, Smartphone, BellRing, GraduationCap, Users2, CalendarRange, Layers, X, SunMoon, Sun, Moon, Monitor, UserCog } from "lucide-react";
 import adminApi from "./adminApi";
 import { useTheme } from "../../theme";
 import LoadingSpinner from "../ui/LoadingSpinner";
@@ -20,6 +20,8 @@ const DEFAULTS = {
   session_timeout_student: 120,  session_timeout_faculty: 240,
   session_timeout_staff: 240,    session_timeout_guest: 60,
   presence_grace_minutes: 5,
+  notify_low_data_mb: 200,       notify_low_time_min: 15,
+  emergency_priority_mode: "true",
   one_device_policy: "true",
   max_devices_student: 2,        max_devices_faculty: 3,
   max_devices_staff: 3,          max_devices_admin: 5,
@@ -34,6 +36,7 @@ const NAV_GROUPS = [
       { key: "datacap", label: "Data Caps", icon: Database },
       { key: "timeout", label: "Session Timeout", icon: Timer },
       { key: "devicepolicy", label: "Device Policy", icon: Smartphone },
+      { key: "alerts", label: "Alerts & Priority", icon: BellRing },
     ],
   },
   {
@@ -65,7 +68,7 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor, desc: "Follows your device" },
 ];
 
-const NETWORK_SECTIONS = ["bandwidth", "datacap", "timeout", "devicepolicy"];
+const NETWORK_SECTIONS = ["bandwidth", "datacap", "timeout", "devicepolicy", "alerts"];
 
 export default function AdminSettings() {
   const { theme, setTheme } = useTheme();
