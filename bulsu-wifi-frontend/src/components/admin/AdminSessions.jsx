@@ -228,6 +228,8 @@ export default function AdminSessions() {
             className="border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm bg-white dark:bg-wine-900 focus:outline-none focus:ring-2 focus:ring-pink-400">
             <option value="">All Reasons</option>
             <option value="user_logout">User Logout</option>
+            <option value="superseded">Superseded</option>
+            <option value="auto_logout_device_switch">Device Switch</option>
             <option value="device_disconnected">Device Disconnected</option>
             <option value="timeout">Timeout</option>
             <option value="force_disconnect">Force Disconnect</option>
