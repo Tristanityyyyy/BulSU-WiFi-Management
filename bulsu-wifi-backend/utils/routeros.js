@@ -194,6 +194,85 @@ async function readQueueState(queueId) {
   }
 }
 
+// Housekeeping: remove grants the router is still holding for sessions that
+// have ended.
+//
+// Every grant carries our tag ("bulsu-wifi:session-107"), so an ip-binding or
+// queue whose tag names a session that is no longer active is a leak — and a
+// bypassed ip-binding is not a harmless leftover: whoever DHCP hands that
+// address to next gets the network for free, without ever logging in. They
+// accumulate whenever revokeAccess() couldn't reach the router at the moment a
+// session ended, and from sessions predating revoke entirely.
+//
+// `resolveActiveTags` is handed every tag found on the router and answers with
+// the subset still live; everything else is removed. Doing it in that order —
+// router first, then the database — is what makes this safe to run against a
+// live system. Reading the database first would let a login that lands in
+// between produce a grant this pass has no record of, and its access would be
+// torn down seconds after it was granted.
+//
+// Untagged objects are never touched: the hand-made `portal-server` binding
+// that keeps the laptop out from behind its own captive portal is exactly such
+// an object, and removing it would take the portal off the network.
+async function reapOrphanGrants(resolveActiveTags) {
+  if (!ENABLED) return 0;
+  const tagOf = (value) => {
+    const text = String(value || "");
+    return text.startsWith(TAG_PREFIX) ? text.slice(TAG_PREFIX.length) : null;
+  };
+  try {
+    return await withConnection(async (conn) => {
+      // tag -> the router objects carrying it
+      const grants = new Map();
+      const add = (tag, key, id) => {
+        if (!grants.has(tag)) grants.set(tag, { bindings: [], queues: [], addresses: [] });
+        grants.get(tag)[key].push(id);
+      };
+
+      if (ACCESS_MODE === "hotspot_ip_binding") {
+        const bindings = await conn.write("/ip/hotspot/ip-binding/print", []).catch(() => []);
+        for (const binding of bindings) {
+          const tag = tagOf(binding.comment);
+          if (tag) add(tag, "bindings", binding[".id"]);
+        }
+      } else {
+        const entries = await conn.write("/ip/firewall/address-list/print", ["?list=bulsu-authorized"]).catch(() => []);
+        for (const entry of entries) {
+          const tag = tagOf(entry.comment);
+          if (tag) add(tag, "addresses", entry[".id"]);
+        }
+      }
+
+      const queues = await conn.write("/queue/simple/print", []).catch(() => []);
+      for (const queue of queues) {
+        // Match on either field: the queue is created with the tag as both its
+        // name and its comment, and an admin editing one in WinBox shouldn't
+        // make the grant invisible to this sweep.
+        const tag = tagOf(queue.comment) || tagOf(queue.name);
+        if (tag) add(tag, "queues", queue[".id"]);
+      }
+
+      if (!grants.size) return 0;
+      // A throw here (database down) propagates before anything is removed.
+      const active = await resolveActiveTags([...grants.keys()]);
+
+      let removed = 0;
+      for (const [tag, objects] of grants) {
+        if (active.has(tag)) continue;
+        for (const id of objects.queues) await conn.write("/queue/simple/remove", [`=.id=${id}`]).catch(() => {});
+        for (const id of objects.bindings) await conn.write("/ip/hotspot/ip-binding/remove", [`=.id=${id}`]).catch(() => {});
+        for (const id of objects.addresses) await conn.write("/ip/firewall/address-list/remove", [`=.id=${id}`]).catch(() => {});
+        console.log(`MikroTik reaped orphan grant ${TAG_PREFIX}${tag}.`);
+        removed++;
+      }
+      return removed;
+    });
+  } catch (err) {
+    console.error("MikroTik reapOrphanGrants failed:", err.message);
+    return 0;
+  }
+}
+
 // Presence: who is actually on the network right now.
 //
 // Nothing in `sessions` could ever answer that before — a phone that turns its
@@ -276,4 +355,4 @@ async function setQueueLimit(queueId, limits) {
   }
 }
 
-module.exports = { grantAccess, revokeAccess, readQueueState, readNetworkPresence, setQueueLimit, toMaxLimit, maxLimitMatches, isOursToReuse, ENABLED };
+module.exports = { grantAccess, revokeAccess, readQueueState, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, maxLimitMatches, isOursToReuse, ENABLED };
