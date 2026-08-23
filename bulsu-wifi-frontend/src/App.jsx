@@ -1,6 +1,7 @@
 import { Route, Routes, Navigate } from 'react-router-dom'
 import LoginPage from './components/LoginPage'
 import GuestVerify from './components/GuestVerify'
+import DataUsageCheck from './components/DataUsageCheck'
 import SessionDashboard from './components/Sessiondashboard'
 import AdminLogin from './components/admin/AdminLogin'
 import AdminLayout from './components/admin/AdminLayout'
@@ -22,6 +23,7 @@ function App() {
     <Routes>
       <Route path="/" element={<LoginPage />} />
       <Route path="/guest" element={<GuestVerify />} />
+      <Route path="/usage" element={<DataUsageCheck />} />
       <Route path="/dashboard" element={<SessionDashboard />} />
       <Route path="/admin/login" element={<Navigate to="/" replace />} />
       <Route path="/admin" element={<ProtectedRoute><ThemeProvider><AdminLayout /></ThemeProvider></ProtectedRoute>}>

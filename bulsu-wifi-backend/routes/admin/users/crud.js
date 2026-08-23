@@ -81,10 +81,15 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ message: 'role must be one of: student, faculty, staff.' });
 
     const [[target]] = await db.query(
-      'SELECT student_number, role, must_change_password FROM users WHERE id=? AND deleted_at IS NULL',
+      'SELECT student_number, full_name, birth_date, role, must_change_password FROM users WHERE id=? AND deleted_at IS NULL',
       [req.params.id]
     );
     if (!target) return res.status(404).json({ message: 'User not found.' });
+    // The admin account's role isn't editable — the form drops the field for it, and the
+    // Users list never shows it — so a request carrying one didn't come from the UI.
+    // Refuse it rather than let a crafted PUT demote the only admin.
+    if (target.role === 'admin' && role !== undefined)
+      return res.status(400).json({ message: "The admin account's role cannot be changed." });
 
     // Birth date is optional on update — older clients and the admin-account form don't
     // send it — but when it is sent it has to be a real date.
@@ -114,10 +119,14 @@ router.put('/:id', async (req, res) => {
     // their own password yet), editing either input has to regenerate it, otherwise the
     // credentials the admin handed out stop matching the account. Once they've set their
     // own password the derivation no longer applies and we leave the hash alone.
-    const regenerate = Boolean(target.must_change_password) && target.role !== 'admin' && birthdateGiven;
-    let newPassword = null;
-    if (regenerate) {
-      newPassword = derivePassword({ birth_date: birthdate, full_name, student_number: target.student_number });
+    // An edit that leaves both inputs alone re-derives the exact same string, so compare
+    // before touching anything — otherwise every unrelated edit re-hashes the same password
+    // and hands the plaintext back over the wire for the client to throw away.
+    const onDefaultPassword = Boolean(target.must_change_password) && target.role !== 'admin';
+    const derive = (birth_date, name) => derivePassword({ birth_date, full_name: name, student_number: target.student_number });
+    const nextPassword = onDefaultPassword && birthdateGiven ? derive(birthdate, full_name) : null;
+    const newPassword = nextPassword && nextPassword !== derive(target.birth_date, target.full_name) ? nextPassword : null;
+    if (newPassword) {
       fields.push('password_hash=?');
       params.push(await bcrypt.hash(newPassword, 10));
     }
@@ -128,7 +137,7 @@ router.put('/:id', async (req, res) => {
       action: ACTIONS.UPDATE,
       target_type: 'user',
       target_name: full_name,
-      description: regenerate
+      description: newPassword
         ? `Updated account for ${full_name} — default password regenerated from the new details`
         : `Updated account for ${full_name}`,
     });

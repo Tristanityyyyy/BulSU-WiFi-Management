@@ -234,11 +234,13 @@ router.post('/csv-import', async (req, res) => {
     }
 
     // Both scans above feed the same bucket, so a row can be listed more than once (bad
-    // number *and* an unregistered course); sort by row so the list reads top-to-bottom.
+    // number *and* an unregistered course); sort by row so the list reads top-to-bottom,
+    // and count distinct rows so one row with two problems isn't reported as two rows.
     if (invalidRows.length) {
       invalidRows.sort((a, b) => a.row - b.row);
+      const affectedRowCount = new Set(invalidRows.map((r) => r.row)).size;
       return res.status(400).json({
-        message: `Import rejected: ${invalidRows.length} row(s) have problems that must be fixed in the file first. No rows were imported.`,
+        message: `Import rejected: ${affectedRowCount} row(s) have problems that must be fixed in the file first. No rows were imported.`,
         invalid_rows: invalidRows,
       });
     }

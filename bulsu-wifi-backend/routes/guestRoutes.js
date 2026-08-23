@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const { grantAccess } = require("../utils/routeros");
+const { normalizeIp } = require("../utils/ip");
+const { getRoleBandwidth } = require("../utils/settings");
 
 // GET /api/guest/token-status?token=...
 // Read-only check — does NOT create a session or consume the token
@@ -33,6 +35,8 @@ router.get("/token-status", async (req, res) => {
 // POST /api/guest/verify
 // Creates the guest session and marks the token as used
 router.post("/verify", async (req, res) => {
+  // Same normalisation as the student login — see utils/ip.js.
+  const clientIp = normalizeIp(req.ip);
   try {
     const { qrCode, guestName } = req.body;
     if (!qrCode || !guestName) return res.status(400).json({ message: "qrCode and guestName are required." });
@@ -63,7 +67,7 @@ router.post("/verify", async (req, res) => {
     try {
       const [inserted] = await db.query(
         "INSERT INTO guest_sessions (guest_id, guest_name, mac_address, ip_address, login_time, status) VALUES (?,?,NULL,?,NOW(),'active')",
-        [guest.id, guestName, req.ip]
+        [guest.id, guestName, clientIp]
       );
       guestSessionId = inserted.insertId;
     } catch (err) {
@@ -81,7 +85,8 @@ router.post("/verify", async (req, res) => {
     // scripts/addGuestSessionMetering.js hasn't been run) must not 500 and cost
     // the guest their code. The meter's self-heal picks the session up instead.
     try {
-      const granted = await grantAccess(req.ip, guestSessionId, "guest");
+      const limits = await getRoleBandwidth("guest");
+      const granted = await grantAccess(clientIp, guestSessionId, "guest", limits);
       if (granted) {
         await db.query(
           "UPDATE guest_sessions SET queue_id=?, last_bytes=0, bytes_used=0 WHERE id=?",

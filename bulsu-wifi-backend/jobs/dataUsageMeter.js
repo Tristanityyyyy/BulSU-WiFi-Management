@@ -1,6 +1,6 @@
 const db = require("../db");
-const { getSettings } = require("../utils/settings");
-const { readQueueBytes, grantAccess, ENABLED } = require("../utils/routeros");
+const { getSettings, getRoleBandwidthMap } = require("../utils/settings");
+const { readQueueState, setQueueLimit, grantAccess, maxLimitMatches, ENABLED } = require("../utils/routeros");
 const { endSession, endGuestSession } = require("../utils/sessions");
 
 const GB = 1024 * 1024 * 1024;
@@ -8,20 +8,24 @@ const CAPPED_ROLES = ["student", "faculty", "staff"];
 
 // Phase 1: pull each active session's Simple Queue byte counter, accrue the
 // delta since last poll into that account's usage for today.
-async function meterActiveQueues() {
+async function meterActiveQueues(bandwidth) {
   const [rows] = await db.query(
-    `SELECT aq.session_id, aq.user_id, aq.ip_address, aq.queue_id, aq.last_bytes
+    `SELECT aq.session_id, aq.user_id, aq.ip_address, aq.queue_id, aq.last_bytes, u.role
      FROM active_queues aq
-     JOIN sessions s ON s.id = aq.session_id AND s.status = 'active'`
+     JOIN sessions s ON s.id = aq.session_id AND s.status = 'active'
+     JOIN users u ON u.id = aq.user_id`
   );
 
   for (const row of rows) {
-    const bytes = await readQueueBytes(row.queue_id);
-    if (bytes === undefined) continue; // router unreachable this cycle — retry next tick
+    const limits = bandwidth[row.role];
+    const state = await readQueueState(row.queue_id);
+    if (state === undefined) continue; // router unreachable this cycle — retry next tick
 
-    if (bytes === null) {
-      // Queue vanished (e.g. removed by hand in WinBox) — self-heal.
-      const recreated = await grantAccess(row.ip_address, row.session_id);
+    if (state === null) {
+      // Queue vanished (e.g. removed by hand in WinBox) — self-heal. Passing the
+      // role's limits matters: recreating it uncapped would hand the account a
+      // free pass on speed *and* silently stop the metering again.
+      const recreated = await grantAccess(row.ip_address, row.session_id, "session", limits);
       if (recreated) {
         await db.query(
           "UPDATE active_queues SET queue_id=?, last_bytes=0 WHERE session_id=?",
@@ -31,6 +35,13 @@ async function meterActiveQueues() {
       continue;
     }
 
+    // An admin can change Settings → Network mid-session; re-apply the ceiling
+    // so it lands on live sessions within one tick instead of at next login.
+    if (state.maxLimit && !maxLimitMatches(state.maxLimit, limits)) {
+      await setQueueLimit(row.queue_id, limits);
+    }
+
+    const bytes = state.bytes;
     // A counter lower than what we last saw means the queue was recreated or
     // the router rebooted — treat the current value as the delta rather than
     // computing a bogus negative number.
@@ -78,7 +89,7 @@ async function enforceDailyCaps() {
 // accrues on the guest_session itself (not a per-day data_usage row) and the cap
 // is the QR's own total `data_limit_gb`, not a per-role daily cap. Both accrual
 // and cutoff happen together per session, since a guest has exactly one queue.
-async function meterAndCapGuests() {
+async function meterAndCapGuests(limits) {
   // No `queue_id IS NOT NULL` filter: a session whose grant failed at verify has
   // a NULL queue_id, and skipping those meant it was never metered, never capped
   // and never repaired — an unlimited pass showing 0 MB in the UI. It falls into
@@ -92,16 +103,16 @@ async function meterAndCapGuests() {
   );
 
   for (const row of rows) {
-    const bytes = row.queue_id ? await readQueueBytes(row.queue_id) : null;
-    if (bytes === undefined) continue; // router unreachable this cycle — retry next tick
+    const state = row.queue_id ? await readQueueState(row.queue_id) : null;
+    if (state === undefined) continue; // router unreachable this cycle — retry next tick
 
-    if (bytes === null) {
+    if (state === null) {
       // No queue yet (grant failed at verify) or it vanished (e.g. removed by
       // hand in WinBox) — self-heal like students. Never for a pass that already
       // lapsed, though: grantAccess would recreate the bypassed ip-binding too and
       // hand back access the expiry sweeper just removed.
       if (new Date(row.expires_at) <= new Date()) continue;
-      const recreated = await grantAccess(row.ip_address, row.id, "guest");
+      const recreated = await grantAccess(row.ip_address, row.id, "guest", limits);
       if (recreated) {
         await db.query(
           "UPDATE guest_sessions SET queue_id=?, last_bytes=0 WHERE id=?",
@@ -111,6 +122,11 @@ async function meterAndCapGuests() {
       continue;
     }
 
+    if (state.maxLimit && !maxLimitMatches(state.maxLimit, limits)) {
+      await setQueueLimit(row.queue_id, limits);
+    }
+
+    const bytes = state.bytes;
     // Counter lower than last seen => queue recreated / router rebooted: treat
     // the current value as the delta rather than a bogus negative (matches meterActiveQueues).
     const delta = bytes >= row.last_bytes ? bytes - row.last_bytes : bytes;
@@ -136,9 +152,11 @@ async function meterAndCapGuests() {
 
 async function runDataUsageMeter() {
   if (!ENABLED) return;
-  await meterActiveQueues();
+  // One settings read per tick covers every session below.
+  const bandwidth = await getRoleBandwidthMap([...CAPPED_ROLES, "guest"]);
+  await meterActiveQueues(bandwidth);
   await enforceDailyCaps();
-  await meterAndCapGuests();
+  await meterAndCapGuests(bandwidth.guest);
 }
 
 function startDataUsageMeter(intervalMs = 2 * 60 * 1000) {

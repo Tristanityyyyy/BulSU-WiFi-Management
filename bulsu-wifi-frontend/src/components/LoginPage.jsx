@@ -7,6 +7,8 @@ import BulsuHeader from "./layout/BulsuHeader";
 import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import WifiIcon from "./ui/WifiIcon";
+import WelcomeScreen from "./WelcomeScreen";
+import { greetingName } from "../utils/names";
 
 import { API_BASE } from "../config/api";
 
@@ -22,8 +24,13 @@ export default function LoginPage() {
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [changePasswordError, setChangePasswordError] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  // Who just logged in, plus the limits their role was granted — used to greet
+  // them by name and to fill in the first-login welcome screen.
+  const [account, setAccount] = useState(null);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   const goToDashboard = () => {
+    setShowWelcome(false);
     setConnected(true);
     setTimeout(() => navigate("/dashboard"), 2500);
   };
@@ -35,7 +42,8 @@ export default function LoginPage() {
 
     try {
       const res = await axios.post(`${API_BASE}/auth/login`, { username, password });
-      const { token, role, must_change_password } = res.data;
+      const { token, role, full_name, policy, must_change_password } = res.data;
+      setAccount({ fullName: full_name, role, policy });
 
       if (role === "admin") {
         localStorage.setItem("adminToken", token);
@@ -73,7 +81,10 @@ export default function LoginPage() {
         { current_password: password, new_password: newPassword },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      goToDashboard();
+      // First login is the one moment we can explain how the account works, so
+      // it lands on the welcome instead of connecting straight away.
+      setMustChangePassword(false);
+      setShowWelcome(true);
     } catch (err) {
       setChangePasswordError(err.response?.data?.message || "Failed to change password.");
       setChangingPassword(false);
@@ -111,11 +122,22 @@ export default function LoginPage() {
               required
             />
             <Button type="submit" disabled={changingPassword}>
-              {changingPassword ? "Saving..." : "Set Password & Connect"}
+              {changingPassword ? "Saving..." : "Set Password & Continue"}
             </Button>
           </form>
         </Card>
       </PageBackground>
+    );
+  }
+
+  if (showWelcome) {
+    return (
+      <WelcomeScreen
+        fullName={account?.fullName}
+        role={account?.role}
+        policy={account?.policy}
+        onContinue={goToDashboard}
+      />
     );
   }
 
@@ -131,7 +153,11 @@ export default function LoginPage() {
           </div>
           <div className="text-center">
             <p className="text-white text-xl font-semibold font-display tracking-tight">Connected to Wi-Fi</p>
-            <p className="text-pink-200/80 text-sm mt-1">Taking you to your session…</p>
+            <p className="text-pink-200/80 text-sm mt-1">
+              {greetingName(account?.fullName)
+                ? `Welcome, ${greetingName(account.fullName)} — taking you to your session…`
+                : "Taking you to your session…"}
+            </p>
           </div>
           <div className="flex gap-1.5">
             {[0, 1, 2].map((i) => (
@@ -178,7 +204,14 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-4 border-t border-slate-100 pt-4 text-center">
-          <p className="text-xs text-gray-400">
+          <button
+            type="button"
+            onClick={() => navigate("/usage")}
+            className="text-xs font-medium text-pink-600 hover:text-pink-700 transition"
+          >
+            Check my data usage →
+          </button>
+          <p className="text-xs text-gray-400 mt-3">
             Visiting? Scan the guest QR code from the registration desk.
           </p>
         </div>

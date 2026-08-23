@@ -21,7 +21,13 @@ const yearPlusSequence = (value) => `${value.slice(0, 4)}${value.slice(4).padSta
 function planFor(value) {
   const digits = value.replace(/^0+/, ""); // "02000315393" -> "2000315393"
   if (/^\d{10}$/.test(digits)) return { to: digits, why: "dropped leading zero(s)" };
-  if (/^\d{5,9}$/.test(value)) return { to: yearPlusSequence(value), why: "year prefix + padded sequence" };
+  // Both branches work off `digits`, and the sequence branch insists on a plausible
+  // admission year (2000-2039) rather than merely a "20" prefix — otherwise
+  // yearPlusSequence() would invent a year out of whatever the first four digits happen to
+  // be, silently renumbering a value nobody can actually map ("2099999" -> "2099000999",
+  // "20415" -> "2041000005"). Those drop through to unmapped, which is what forces the
+  // explicit OVERRIDES entry the migration wants for them.
+  if (/^20[0-3]\d{2,6}$/.test(digits)) return { to: yearPlusSequence(digits), why: "year prefix + padded sequence" };
   return null; // too short / non-numeric to map mechanically — handled by OVERRIDES
 }
 

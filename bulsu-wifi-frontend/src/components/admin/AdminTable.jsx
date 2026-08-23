@@ -1,10 +1,20 @@
 import { Inbox, ChevronUp, ChevronDown } from "lucide-react";
 import LoadingSpinner from "../ui/LoadingSpinner";
 
-export default function AdminTable({ columns, rows, loading, emptyText = "No records found.", emptyHint, page, totalPages, onPage, colWidths, sortKey, sortDir, onSort }) {
+// `maxHeight` (any CSS length, e.g. "60vh") caps the table body and scrolls it
+// vertically instead of letting a full page of rows push the pager off-screen.
+// Opt-in: without it the table grows as tall as its rows, which is what every
+// other admin screen already expects. The header sticks while scrolling.
+export default function AdminTable({ columns, rows, loading, emptyText = "No records found.", emptyHint, page, totalPages, onPage, colWidths, sortKey, sortDir, onSort, maxHeight }) {
+  // Sticky headers need an opaque background — the default translucent one lets
+  // scrolled rows show through — and a box-shadow rather than a border, which
+  // border-collapse drops on a sticky cell.
+  const stickyHead = maxHeight
+    ? " sticky top-0 z-10 bg-slate-50 dark:bg-wine-900 shadow-[inset_0_-1px_0_0_#e2e8f0] dark:shadow-[inset_0_-1px_0_0_#40202f]"
+    : "";
   return (
     <div className="bg-white dark:bg-wine-900 rounded-2xl shadow-sm border border-slate-200 dark:border-wine-800 overflow-hidden">
-      <div className="overflow-x-auto">
+      <div className={`overflow-x-auto${maxHeight ? " overflow-y-auto" : ""}`} style={maxHeight ? { maxHeight } : undefined}>
         <table className="w-full text-sm" style={colWidths ? { tableLayout: "fixed" } : undefined}>
           {colWidths && (
             <colgroup>
@@ -20,7 +30,7 @@ export default function AdminTable({ columns, rows, loading, emptyText = "No rec
                 const label = isSortable ? col.label : col;
                 const active = isSortable && sortKey === key;
                 return (
-                  <th key={key} className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-gray-500 whitespace-nowrap">
+                  <th key={key} className={`text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-gray-500 whitespace-nowrap${stickyHead}`}>
                     {hasCustomRender ? (
                       col.render()
                     ) : isSortable ? (

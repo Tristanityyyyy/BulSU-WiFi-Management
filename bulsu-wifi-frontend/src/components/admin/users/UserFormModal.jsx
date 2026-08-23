@@ -22,6 +22,12 @@ function parseFullName(fullName) {
   return { last_name, first_name, middle_initial };
 }
 
+// The server derives the password's name part from the stored "Last, First Middle"
+// string (utils/derivePassword.js), which drops anything after the first comma —
+// "Dela Cruz, Jr." becomes "Dela Cruz". Mirror that here, or the preview (and the
+// password the create path sends) would disagree with what the account ends up with.
+const passwordLastName = (value) => (value || "").split(",")[0].trim();
+
 export default function UserFormModal({ user, courses, sections, onClose, onSaved, onError }) {
   const isAdminAccount = user?.role === "admin";
   const [form, setForm] = useState(() => ({
@@ -41,8 +47,14 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
   // (or an admin resets it, which puts them back on a generated one). Only while that's
   // true does editing the name/birthdate change what they log in with.
   const onDefaultPassword = !isAdminAccount && (!user || Boolean(user.must_change_password));
+  // Only meaningful while typing a new number — an existing account's number is read-only,
+  // and legacy ones can be shorter than the rule now demands, so don't paint those red.
   const accountNumberIncomplete =
-    form.student_number.length > 0 && form.student_number.length !== ACCOUNT_NUMBER_LENGTH;
+    !user && form.student_number.length > 0 && form.student_number.length !== ACCOUNT_NUMBER_LENGTH;
+  // Some older records have no birth date on file. Requiring one to save would block every
+  // unrelated edit (course, section, a name typo) on those accounts, so it's only mandatory
+  // when creating, or when the account already has one that mustn't be cleared.
+  const birthdateRequired = !user || Boolean(user.birth_date);
   // Only active catalog entries can be assigned; archived ones are hidden here
   // (they still resolve for display elsewhere via the full catalog).
   const activeCourses = (courses || []).filter((course) => course.status !== "inactive");
@@ -71,7 +83,7 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
   // derivePassword() on the server, so the preview matches what actually gets saved.
   const derivedPassword = (() => {
     if (!onDefaultPassword) return null;
-    const lastName = form.last_name.trim();
+    const lastName = passwordLastName(form.last_name);
     if (!lastName || !form.birthdate) return null;
     const [yyyy, mm, dd] = form.birthdate.split("-");
     return `${lastName}${yyyy}${mm}${dd}`;
@@ -81,7 +93,7 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
   // the exact same string, so there'd be nothing to announce.
   const storedPassword = (() => {
     if (!user || !onDefaultPassword || !user.birth_date) return null;
-    const lastName = (user.full_name || "").split(",")[0].trim();
+    const lastName = passwordLastName(user.full_name);
     return lastName ? `${lastName}${user.birth_date.replace(/-/g, "")}` : null;
   })();
   const passwordWillChange = Boolean(user && derivedPassword && derivedPassword !== storedPassword);
@@ -230,8 +242,13 @@ export default function UserFormModal({ user, courses, sections, onClose, onSave
           <div>
             <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Birthdate</label>
             <input type="date" value={form.birthdate} onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
-              max={new Date().toISOString().split("T")[0]} required
+              max={new Date().toISOString().split("T")[0]} required={birthdateRequired}
               className="w-full border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400" />
+            {!birthdateRequired && !form.birthdate && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                This account has no birth date on file. Leave it blank to save your other changes, or set one to fill it in.
+              </p>
+            )}
             {derivedPassword && (
               <div className="mt-2 bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900 rounded-xl px-3 py-2">
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">

@@ -10,8 +10,9 @@ export default function CsvImportModal({ csv }) {
     importRole, setImportRole,
     resetCsv, finishImport, removeCsvRow,
     showDuplicateNotice, setShowDuplicateNotice, removeDuplicateRows,
-    confirmCsvImport, isImportRowValid, isDuplicateRow, hasValidAccountNumber,
-    invalidCsvRowCount, duplicateCsvRowCount, badNumberCsvRowCount, accountNumberLength,
+    confirmCsvImport, previewRows, hiddenPreviewRowCount, hiddenFlaggedRowCount, previewRowLimit,
+    invalidCsvRowCount, duplicateCsvRowCount, badNumberCsvRowCount, existingNumberRowCount,
+    accountNumberLength,
   } = csv;
 
   return (
@@ -72,12 +73,12 @@ export default function CsvImportModal({ csv }) {
                 ))}</tr>
               </thead>
               <tbody>
-                {csvRows.slice(0, 50).map((r, i) => {
-                  const badNumber = !hasValidAccountNumber(r);
-                  const duplicate = !badNumber && isDuplicateRow(r);
-                  const invalid = !badNumber && !duplicate && importRole === "student" && !isImportRowValid(r);
+                {previewRows.map(({ row: r, index, flag }) => {
+                  const badNumber = flag === "badNumber";
+                  const duplicate = flag === "duplicate";
+                  const invalid = flag === "invalid";
                   return (
-                    <tr key={i} className={`border-b border-pink-50 dark:border-wine-800 text-gray-700 dark:text-gray-300 ${duplicate ? "bg-orange-50 dark:bg-orange-950/30" : badNumber || invalid ? "bg-red-50 dark:bg-red-950/30" : ""}`}>
+                    <tr key={index} className={`border-b border-pink-50 dark:border-wine-800 text-gray-700 dark:text-gray-300 ${duplicate ? "bg-orange-50 dark:bg-orange-950/30" : badNumber || invalid ? "bg-red-50 dark:bg-red-950/30" : ""}`}>
                       <td className={`px-3 py-1.5 font-mono ${duplicate ? "text-orange-700 dark:text-orange-400 font-semibold" : badNumber ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.student_number}</td>
                       <td className="px-3 py-1.5">{r.full_name}</td>
                       <td className="px-3 py-1.5">{r.birth_date}</td>
@@ -85,7 +86,7 @@ export default function CsvImportModal({ csv }) {
                       <td className={`px-3 py-1.5 ${invalid ? "text-red-700 dark:text-red-300 font-semibold" : ""}`}>{r.section_name}</td>
                       <td className="px-3 py-1.5">{r.enrollment_status}</td>
                       <td className="px-3 py-1.5">
-                        <button type="button" onClick={() => removeCsvRow(i)} aria-label="Remove row"
+                        <button type="button" onClick={() => removeCsvRow(index)} aria-label="Remove row"
                           className="p-1 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition">
                           <X size={14} />
                         </button>
@@ -96,6 +97,12 @@ export default function CsvImportModal({ csv }) {
               </tbody>
             </table>
           </div>
+          {hiddenPreviewRowCount > 0 && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+              Showing the first {previewRowLimit} rows plus {hiddenFlaggedRowCount > 0 ? "some of the" : "every"} highlighted row below them. {hiddenPreviewRowCount} other row(s) aren't listed here — the import still covers all {csvRows.length}.
+              {hiddenFlaggedRowCount > 0 && " " + hiddenFlaggedRowCount + " of the hidden rows are highlighted too; the counts above are for the whole file."}
+            </p>
+          )}
         </Modal>
       )}
 
@@ -184,7 +191,7 @@ export default function CsvImportModal({ csv }) {
       {csvState === "preview" && showDuplicateNotice && (
         <ConfirmDialog
           title="Duplicate student numbers found"
-          message={`${duplicateCsvRowCount} student number(s) in this file already exist in the system and cannot be imported. Click OK to remove them from this import, or Cancel to review the file yourself.`}
+          message={`${existingNumberRowCount} student number(s) in this file already exist in the system and cannot be imported. Click OK to remove them from this import, or Cancel to review the file yourself.`}
           confirmLabel="OK"
           danger={false}
           onConfirm={removeDuplicateRows}

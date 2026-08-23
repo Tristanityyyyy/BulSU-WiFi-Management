@@ -12,6 +12,13 @@ const REQUIRED_HEADERS = ["student_number", "full_name", "birth_date"];
 const ACCOUNT_NUMBER_LENGTH = 10;
 const ACCOUNT_NUMBER_PATTERN = /^\d{10}$/;
 
+// How many rows of a big roster the preview table renders before truncating.
+const PREVIEW_ROW_LIMIT = 50;
+// Flagged rows past that cut-off are pulled back in so they stay visible, but only up to
+// this many: the usual failure is systemic — a roster that was already imported, or a course
+// code the catalog doesn't know — and flags every row, which would render the whole file.
+const PREVIEW_FLAGGED_ROW_LIMIT = 50;
+
 function parseCsvLine(line) {
   const values = [];
   let current = "";
@@ -215,9 +222,41 @@ export default function useCsvImport({ catalog, onImported, onReset }) {
     const value = (row.student_number || "").trim();
     return !value || ACCOUNT_NUMBER_PATTERN.test(value);
   };
-  const invalidCsvRowCount = importRole === "student" ? csvRows.filter((r) => !isImportRowValid(r)).length : 0;
-  const duplicateCsvRowCount = csvRows.filter(isDuplicateRow).length;
-  const badNumberCsvRowCount = csvRows.filter((r) => !hasValidAccountNumber(r)).length;
+  // A row can trip more than one check — a legacy short number that also already exists in
+  // the system, say — but the table can only paint it one colour. Deciding the row's single
+  // flag here keeps each banner's count equal to the number of rows actually highlighted in
+  // that colour. isImportRowValid() is a no-op for faculty/staff, so "invalid" is student-only.
+  const rowFlag = (row) => {
+    if (!hasValidAccountNumber(row)) return "badNumber";
+    if (isDuplicateRow(row)) return "duplicate";
+    if (!isImportRowValid(row)) return "invalid";
+    return null;
+  };
+
+  const rowFlags = csvRows.map(rowFlag);
+  const invalidCsvRowCount = rowFlags.filter((f) => f === "invalid").length;
+  const duplicateCsvRowCount = rowFlags.filter((f) => f === "duplicate").length;
+  const badNumberCsvRowCount = rowFlags.filter((f) => f === "badNumber").length;
+  // removeDuplicateRows drops every row whose number already exists, including any that the
+  // flags above filed under badNumber — so the notice offering that has to count them too.
+  const existingNumberRowCount = csvRows.filter(isDuplicateRow).length;
+
+  // Large rosters are truncated in the preview, but a flagged row past the cut-off would be
+  // invisible *and* unremovable while still blocking the import — so those are pulled back
+  // in, up to a cap of their own: the flags that matter at that volume are systemic (a
+  // re-imported roster, an unknown course code) and trip every row in the file. The banner
+  // counts above stay whole-file regardless.
+  // The index travels with the row because the ✕ button removes by position.
+  const previewRows = [];
+  let hiddenFlaggedRowCount = 0;
+  csvRows.forEach((row, index) => {
+    const flag = rowFlags[index];
+    if (index < PREVIEW_ROW_LIMIT) previewRows.push({ row, index, flag });
+    else if (!flag) return;
+    else if (previewRows.length < PREVIEW_ROW_LIMIT + PREVIEW_FLAGGED_ROW_LIMIT) previewRows.push({ row, index, flag });
+    else hiddenFlaggedRowCount += 1;
+  });
+  const hiddenPreviewRowCount = csvRows.length - previewRows.length;
 
   return {
     csvState, csvRows, csvResult,
@@ -225,8 +264,9 @@ export default function useCsvImport({ catalog, onImported, onReset }) {
     handleFileSelected, downloadCsvTemplate,
     confirmCsvImport, resetCsv, finishImport, removeCsvRow,
     showDuplicateNotice, setShowDuplicateNotice, removeDuplicateRows,
-    isImportRowValid, isDuplicateRow, hasValidAccountNumber,
-    invalidCsvRowCount, duplicateCsvRowCount, badNumberCsvRowCount,
+    previewRows, hiddenPreviewRowCount, hiddenFlaggedRowCount,
+    previewRowLimit: PREVIEW_ROW_LIMIT,
+    invalidCsvRowCount, duplicateCsvRowCount, badNumberCsvRowCount, existingNumberRowCount,
     accountNumberLength: ACCOUNT_NUMBER_LENGTH,
   };
 }

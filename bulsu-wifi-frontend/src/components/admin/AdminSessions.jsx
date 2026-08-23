@@ -21,6 +21,12 @@ function downloadXlsx(data, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Statuses arrive as stored: "force-disconnected", "data_limit". Underscores read
+// as word breaks, and only the first letter is capitalised — "Force-disconnected",
+// not "Force-Disconnected", so the value stays recognisably the one in the filter.
+const formatStatus = (status) =>
+  String(status ?? "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
 function StatusBadge({ status }) {
   const map = {
     active: "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-900",
@@ -29,8 +35,8 @@ function StatusBadge({ status }) {
     timeout: "bg-orange-50 dark:bg-orange-950/30 text-orange-600 border-orange-200",
   };
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${map[status] ?? "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400"}`}>
-      {status}
+    <span className={`inline-block whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium border ${map[status] ?? "bg-gray-100 dark:bg-wine-800 text-gray-500 dark:text-gray-400"}`}>
+      {formatStatus(status)}
     </span>
   );
 }
@@ -94,19 +100,19 @@ export default function AdminSessions() {
 
   const userRows = rows.map((s) => (
     <>
-      <td className="px-4 py-2 text-gray-800 dark:text-gray-100">{s.full_name}</td>
-      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.student_number ?? "—"}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.mac_address}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.ip_address}</td>
-      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
+      <td className="px-4 py-2 text-gray-800 dark:text-gray-100 whitespace-nowrap">{s.full_name}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.student_number ?? "—"}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.mac_address}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.ip_address}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
-      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_reason ?? "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.logout_reason ?? "—"}</td>
       <td className="px-4 py-2">
         {s.status === "active" && (
           <button onClick={() => setConfirm({ id: s.id, isGuest: false, label: `Disconnect ${s.full_name}'s active session?` })}
-            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
+            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
             <WifiOff size={12} /> Disconnect
           </button>
         )}
@@ -116,17 +122,17 @@ export default function AdminSessions() {
 
   const guestRows = rows.map((s) => (
     <>
-      <td className="px-4 py-2 text-gray-800 dark:text-gray-100">{s.guest_name}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.mac_address}</td>
-      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.ip_address}</td>
-      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
-      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
+      <td className="px-4 py-2 text-gray-800 dark:text-gray-100 whitespace-nowrap">{s.guest_name}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.mac_address}</td>
+      <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.ip_address}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
       <td className="px-4 py-2">
         {s.status === "active" && (
           <button onClick={() => setConfirm({ id: s.id, isGuest: true, label: `Disconnect guest ${s.guest_name}'s active session?` })}
-            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
+            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-red-600 dark:text-red-400 hover:underline font-medium">
             <WifiOff size={12} /> Disconnect
           </button>
         )}
@@ -193,6 +199,7 @@ export default function AdminSessions() {
         page={page}
         totalPages={totalPages}
         onPage={setPage}
+        maxHeight="60vh"
         emptyText={`No ${tab} sessions found.`}
         emptyHint="Try adjusting the date range or status filter."
       />

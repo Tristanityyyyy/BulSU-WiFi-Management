@@ -141,13 +141,17 @@ export default function SessionDashboard() {
   const dataUsedMB = session?.dataUsedMB ?? 0;
   const dataLimitMB = isUnlimited ? null : (session?.dataLimitMB ?? 2048);
   const remainingMB = isUnlimited ? null : Math.max(0, dataLimitMB - dataUsedMB);
-  const dataPct = isUnlimited ? 100 : Math.min(100, (dataUsedMB / dataLimitMB) * 100);
+  // Share of the allowance already spent. Unlimited spends nothing, so its ring
+  // stays full rather than reading as an empty tank.
+  const dataPct = isUnlimited ? 0 : Math.min(100, (dataUsedMB / dataLimitMB) * 100);
   const isLowData = !isUnlimited && remainingMB <= LOW_DATA_THRESHOLD_MB;
   const isLowTime = secondsLeft != null && secondsLeft <= 300;
 
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - dataPct / 100);
+  // The arc traces what is LEFT, not what has been spent: a fresh session starts
+  // as a full circle and drains toward empty, matching the countdown in the middle.
+  const dashOffset = circumference * (dataPct / 100);
   const ringColor = isLowData ? "#dc2626" : dataPct > 75 ? "#f59e0b" : "#db2777";
 
   return (
