@@ -137,6 +137,12 @@ router.post("/login", async (req, res) => {
           "INSERT INTO active_queues (session_id, user_id, ip_address, queue_id, last_bytes) VALUES (?,?,?,?,0)",
           [session.insertId, user.id, clientIp, granted.queueId]
         );
+        // Recorded now, while the device is demonstrably here. The presence
+        // sweeper can only learn it on a later tick, which left every session
+        // that ended inside a minute with no record of the device at all.
+        if (granted.mac) {
+          await db.query("UPDATE sessions SET mac_address=? WHERE id=?", [granted.mac, session.insertId]);
+        }
       }
     }
 

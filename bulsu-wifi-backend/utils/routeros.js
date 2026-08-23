@@ -87,9 +87,10 @@ async function withConnection(fn) {
 }
 
 // Grants real network access for `ip` and starts metering it via a Simple
-// Queue. Returns { queueId } on success, or null on ANY failure (router
+// Queue. Returns { queueId, mac } on success, or null on ANY failure (router
 // unreachable, auth failure, etc.) — callers must treat null as "couldn't
-// grant right now" and must never let it block login.
+// grant right now" and must never let it block login. `mac` may be null on its
+// own if the router could not name the device; the grant still stands.
 //
 // `kind` namespaces the router tag so student sessions and guest sessions —
 // whose ids are separate integer sequences — can't collide on the same
@@ -101,6 +102,20 @@ async function withConnection(fn) {
 // behind its own hotspot is exactly this — and adopting it would rename it to
 // our tag, after which revokeAccess() would delete it at logout and strand the
 // portal server behind the captive portal.
+// The MAC behind an address, asked of a connection that is already open.
+//
+// ARP first (it is populated the moment a client speaks to the router at all),
+// the DHCP lease second for the case where ARP has aged out but the lease has
+// not. Never throws: not knowing the MAC is a missing detail, not a reason to
+// fail whatever the caller was really doing.
+async function readMacFor(conn, ip) {
+  const arp = await conn.write("/ip/arp/print", [`?address=${ip}`]).catch(() => []);
+  if (arp[0] && arp[0]["mac-address"]) return String(arp[0]["mac-address"]).toUpperCase();
+  const lease = await conn.write("/ip/dhcp-server/lease/print", [`?address=${ip}`]).catch(() => []);
+  if (lease[0] && lease[0]["mac-address"]) return String(lease[0]["mac-address"]).toUpperCase();
+  return null;
+}
+
 function isOursToReuse(binding) {
   return String((binding && binding.comment) || "").startsWith(TAG_PREFIX);
 }
@@ -144,7 +159,10 @@ async function grantAccess(rawIp, id, kind = "session", limits = null) {
         await conn.write("/ip/firewall/address-list/add", ["=list=bulsu-authorized", `=address=${ip}`, `=comment=${tag}`]);
       }
       const added = await conn.write("/queue/simple/add", [`=name=${tag}`, `=target=${ip}/32`, `=max-limit=${toMaxLimit(limits)}`, `=priority=${toPriority(limits)}`, `=comment=${tag}`]);
-      return { queueId: added[0].ret };
+      // Read on the way out, on the connection already in hand — no extra
+      // round-trip, and the caller gets to record which device this actually was
+      // rather than leaving it blank for the presence sweeper to fill in later.
+      return { queueId: added[0].ret, mac: await readMacFor(conn, ip) };
     });
   } catch (err) {
     console.error("MikroTik grantAccess failed:", err.message);

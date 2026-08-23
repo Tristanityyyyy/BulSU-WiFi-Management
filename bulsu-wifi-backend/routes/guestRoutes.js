@@ -89,8 +89,8 @@ router.post("/verify", async (req, res) => {
       const granted = await grantAccess(clientIp, guestSessionId, "guest", limits);
       if (granted) {
         await db.query(
-          "UPDATE guest_sessions SET queue_id=?, last_bytes=0, bytes_used=0 WHERE id=?",
-          [granted.queueId, guestSessionId]
+          "UPDATE guest_sessions SET queue_id=?, last_bytes=0, bytes_used=0, mac_address=COALESCE(?, mac_address) WHERE id=?",
+          [granted.queueId, granted.mac, guestSessionId]
         );
       }
     } catch (err) {
