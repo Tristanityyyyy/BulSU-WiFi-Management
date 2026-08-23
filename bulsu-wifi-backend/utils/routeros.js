@@ -102,6 +102,41 @@ async function withConnection(fn) {
 // behind its own hotspot is exactly this — and adopting it would rename it to
 // our tag, after which revokeAccess() would delete it at logout and strand the
 // portal server behind the captive portal.
+// The router's own address is never a client.
+//
+// It arrives as one when a hotspot-intercepted connection gets source-NATed on
+// its way to the portal — a masquerade rule without an out-interface constraint
+// does exactly that, and this deployment had one. The login still succeeds, but
+// everything downstream is then working with the router's address instead of the
+// device's: the grant would bypass the router itself rather than the phone, no
+// MAC can be found for it, presence detection sweeps the session as departed,
+// and two devices arriving this way would supersede each other's sessions.
+//
+// Cheap to detect and worth saying loudly, because the symptom on its own points
+// nowhere near the cause.
+function isRouterAddress(rawIp) {
+  const host = normalizeIp(process.env.MIKROTIK_HOST);
+  return Boolean(host) && normalizeIp(rawIp) === host;
+}
+
+// The MAC behind an address, on a connection of our own. For callers that have
+// no grant to make — an admin logging in gets no queue, but identifying the
+// device shouldn't be a privilege of the roles that do.
+//
+// Returns null without touching the router for an address it could never know
+// (loopback), so a local login pays nothing for asking.
+async function readClientMac(rawIp) {
+  if (!ENABLED) return null;
+  const ip = normalizeIp(rawIp);
+  if (!isGrantableIp(ip) || isRouterAddress(ip)) return null;
+  try {
+    return await withConnection((conn) => readMacFor(conn, ip));
+  } catch (err) {
+    console.error("MikroTik readClientMac failed:", err.message);
+    return null;
+  }
+}
+
 // The MAC behind an address, asked of a connection that is already open.
 //
 // ARP first (it is populated the moment a client speaks to the router at all),
@@ -132,6 +167,16 @@ async function grantAccess(rawIp, id, kind = "session", limits = null) {
     // testing on the laptop's own browser) has no lease to bypass, and granting
     // it would strand a junk ip-binding + queue on the device.
     console.warn(`MikroTik grantAccess skipped — "${rawIp}" is not an address the router can hold a lease for.`);
+    return null;
+  }
+  if (isRouterAddress(ip)) {
+    // Bypassing the router's own address would grant nothing to the client that
+    // actually made the request, while leaving a binding on the gateway itself.
+    console.warn(
+      `MikroTik grantAccess refused — ${ip} is the router's own address, so this request reached the ` +
+      `backend source-NATed rather than from the client. Check for a srcnat masquerade rule with no ` +
+      `out-interface-list constraint (the Hotspot setup wizard adds one).`
+    );
     return null;
   }
   const tag = `${TAG_PREFIX}${kind}-${id}`;
@@ -394,4 +439,4 @@ async function setQueueLimit(queueId, limits) {
   }
 }
 
-module.exports = { grantAccess, revokeAccess, readQueueState, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, DEFAULT_QUEUE_PRIORITY, ENABLED };
+module.exports = { grantAccess, revokeAccess, readQueueState, readClientMac, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, isRouterAddress, DEFAULT_QUEUE_PRIORITY, ENABLED };

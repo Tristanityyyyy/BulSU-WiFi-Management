@@ -6,7 +6,7 @@ const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
 const { getSettings, getRoleBandwidth, getRoleBandwidthMap } = require("../utils/settings");
 const { endSession } = require("../utils/sessions");
-const { grantAccess } = require("../utils/routeros");
+const { grantAccess, readClientMac, isRouterAddress } = require("../utils/routeros");
 const { normalizeIp } = require("../utils/ip");
 
 // Fallback values used until the admin actually saves Settings at least once
@@ -129,6 +129,16 @@ router.post("/login", async (req, res) => {
       [user.id, clientIp, user.course_id, user.section_id, user.school_year_id, user.semester_id]
     );
 
+    if (isRouterAddress(clientIp)) {
+      // Nothing below can work on this address, and the session that results will
+      // look inexplicable later — so name the cause in the log while it is happening.
+      console.warn(
+        `Login for ${user.student_number} arrived from ${clientIp}, the router's own address: this request ` +
+        `was source-NATed on the way in, so the real device is unknown. No grant, no metering, no MAC.`
+      );
+    }
+
+    let deviceMac = null;
     if (CAPPED_ROLES.includes(user.role)) {
       const limits = await getRoleBandwidth(user.role);
       const granted = await grantAccess(clientIp, session.insertId, "session", limits);
@@ -137,13 +147,17 @@ router.post("/login", async (req, res) => {
           "INSERT INTO active_queues (session_id, user_id, ip_address, queue_id, last_bytes) VALUES (?,?,?,?,0)",
           [session.insertId, user.id, clientIp, granted.queueId]
         );
-        // Recorded now, while the device is demonstrably here. The presence
-        // sweeper can only learn it on a later tick, which left every session
-        // that ended inside a minute with no record of the device at all.
-        if (granted.mac) {
-          await db.query("UPDATE sessions SET mac_address=? WHERE id=?", [granted.mac, session.insertId]);
-        }
+        deviceMac = granted.mac;
       }
+    }
+    // Identifying the device is not a privilege of the roles that get a queue: an
+    // admin login, or one whose grant was refused, still names its device here.
+    // Recorded now, while the device is demonstrably present — the presence sweeper
+    // can only learn it on a later tick, which left every session that ended inside
+    // a minute with no record of the device at all.
+    if (!deviceMac) deviceMac = await readClientMac(clientIp);
+    if (deviceMac) {
+      await db.query("UPDATE sessions SET mac_address=? WHERE id=?", [deviceMac, session.insertId]);
     }
 
     const token = jwt.sign(
