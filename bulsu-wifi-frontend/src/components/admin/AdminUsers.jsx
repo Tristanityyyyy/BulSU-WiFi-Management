@@ -17,6 +17,7 @@ import AdminTable from "./AdminTable";
 import SelectAllHeader from "./SelectAllHeader";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SuccessDialog from "../ui/SuccessDialog";
+import ErrorDialog from "../ui/ErrorDialog";
 
 const PAGE_SIZE = 20;
 
@@ -347,13 +348,7 @@ export default function AdminUsers() {
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doAction} onCancel={() => setConfirm(null)} />}
       {successMessage && <SuccessDialog message={successMessage} onClose={() => setSuccessMessage("")} />}
       {errorMessage && (
-        <ConfirmDialog
-          title="Unable to save"
-          message={errorMessage}
-          confirmLabel="OK"
-          onConfirm={() => setErrorMessage("")}
-          onCancel={() => setErrorMessage("")}
-        />
+        <ErrorDialog title="Unable to save" message={errorMessage} onClose={() => setErrorMessage("")} />
       )}
       {resetPasswordTarget && (
         <ResetPasswordModal
@@ -389,13 +384,7 @@ export default function AdminUsers() {
         />
       )}
       {permanentDeleteError && (
-        <ConfirmDialog
-          title="Unable to delete"
-          message={permanentDeleteError}
-          confirmLabel="OK"
-          onConfirm={() => setPermanentDeleteError("")}
-          onCancel={() => setPermanentDeleteError("")}
-        />
+        <ErrorDialog title="Unable to delete" message={permanentDeleteError} onClose={() => setPermanentDeleteError("")} />
       )}
     </div>
   );

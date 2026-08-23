@@ -5,6 +5,7 @@ import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SuccessDialog from "../ui/SuccessDialog";
+import ErrorDialog from "../ui/ErrorDialog";
 import Modal from "../ui/Modal";
 
 const PAGE_SIZE = 20;
@@ -221,11 +222,14 @@ export default function AdminGuests() {
       if (action === "revoke") {
         const res = await adminApi.patch(`/admin/guests/${id}/revoke`);
         // The code is revoked either way, but the device may still be online if
-        // the router was unreachable — don't let that pass silently.
+        // the router was unreachable — report that instead of a clean success.
         if (res.data?.warning) setActionError(res.data.warning);
+        else setSuccess("Guest QR code revoked.");
       }
-      if (action === "delete") await adminApi.delete(`/admin/guests/${id}`);
-      setSuccess(action === "delete" ? "Guest code deleted." : "Guest QR code revoked.");
+      if (action === "delete") {
+        await adminApi.delete(`/admin/guests/${id}`);
+        setSuccess("Guest code deleted.");
+      }
       fetchGuests(page);
     } catch (err) {
       setActionError(err.response?.data?.message || `Failed to ${action} guest.`);
@@ -319,10 +323,6 @@ export default function AdminGuests() {
         </form>
       </div>
 
-      {actionError && (
-        <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2">{actionError}</p>
-      )}
-
       {newGuest && (
         <QrModal guest={newGuest} title="Guest QR Code Ready" subtitle="Guest will enter their name after scanning."
           onClose={() => setNewGuest(null)} />
@@ -348,6 +348,13 @@ export default function AdminGuests() {
 
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doConfirmedAction} onCancel={() => setConfirm(null)} />}
       {success && <SuccessDialog message={success} onClose={() => setSuccess("")} />}
+      {actionError && (
+        <ErrorDialog
+          title="That didn't work"
+          message={actionError}
+          onClose={() => setActionError("")}
+        />
+      )}
     </div>
   );
 }

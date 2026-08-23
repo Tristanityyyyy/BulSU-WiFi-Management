@@ -10,6 +10,7 @@ import AdminTable from "./AdminTable";
 import SelectAllHeader from "./SelectAllHeader";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SuccessDialog from "../ui/SuccessDialog";
+import ErrorDialog from "../ui/ErrorDialog";
 import useFeedbackList from "./useFeedbackList";
 import useFeedbackTrashList from "./useFeedbackTrashList";
 import { useTheme } from "../../theme";
@@ -393,15 +394,7 @@ export default function AdminFeedback() {
 
       {confirm && <ConfirmDialog message={confirm.label} onConfirm={doAction} onCancel={() => setConfirm(null)} />}
       {successMessage && <SuccessDialog message={successMessage} onClose={() => setSuccessMessage("")} />}
-      {errorMessage && (
-        <ConfirmDialog
-          title="Something went wrong"
-          message={errorMessage}
-          confirmLabel="OK"
-          onConfirm={() => setErrorMessage("")}
-          onCancel={() => setErrorMessage("")}
-        />
-      )}
+      {errorMessage && <ErrorDialog message={errorMessage} onClose={() => setErrorMessage("")} />}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SuccessDialog from "../ui/SuccessDialog";
+import ErrorDialog from "../ui/ErrorDialog";
 
 const PAGE_SIZE = 20;
 
@@ -232,10 +233,6 @@ export default function AdminSessions() {
         )}
       </div>
 
-      {actionError && (
-        <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-3 py-2">{actionError}</p>
-      )}
-
       <AdminTable
         columns={isGuest ? guestCols : userCols}
         rows={isGuest ? guestRows : userRows}
@@ -258,6 +255,13 @@ export default function AdminSessions() {
         />
       )}
       {success && <SuccessDialog message={success} onClose={() => setSuccess("")} />}
+      {actionError && (
+        <ErrorDialog
+          title="That didn't work"
+          message={actionError}
+          onClose={() => setActionError("")}
+        />
+      )}
     </div>
   );
 }
