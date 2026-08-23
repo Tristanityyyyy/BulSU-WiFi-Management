@@ -8,7 +8,6 @@ import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import WifiIcon from "./ui/WifiIcon";
 import WelcomeScreen from "./WelcomeScreen";
-import PolicyCard from "./PolicyCard";
 import { greetingName } from "../utils/names";
 
 import { API_BASE } from "../config/api";
@@ -204,17 +203,8 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <PolicyCard />
-
         <div className="mt-4 border-t border-slate-100 pt-4 text-center">
-          <button
-            type="button"
-            onClick={() => navigate("/usage")}
-            className="text-xs font-medium text-pink-600 hover:text-pink-700 transition"
-          >
-            Check my data usage →
-          </button>
-          <p className="text-xs text-gray-400 mt-3">
+          <p className="text-xs text-gray-400">
             Visiting? Scan the guest QR code from the registration desk.
           </p>
         </div>
