@@ -4,21 +4,17 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
-const { getSettings, getRoleBandwidth } = require("../utils/settings");
+const { getSettings, getRoleBandwidth, getRoleBandwidthMap } = require("../utils/settings");
 const { endSession } = require("../utils/sessions");
 const { grantAccess } = require("../utils/routeros");
 const { normalizeIp } = require("../utils/ip");
 
 // Fallback values used until the admin actually saves Settings at least once
 // (the `settings` table only ever holds keys that were explicitly saved).
-const { DEFAULT_SESSION_TIMEOUT_MIN } = require("../utils/constants");
+const { DEFAULT_SESSION_TIMEOUT_MIN, CAPPED_ROLES } = require("../utils/constants");
+const { getAllowance } = require("../utils/allowance");
 
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
-
-// Roles this account/day-based data cap applies to. Guests have their own
-// per-QR data_limit_gb mechanism (guestRoutes.js); admin has no client-facing
-// usage dashboard, so neither is metered/capped here.
-const CAPPED_ROLES = ["student", "faculty", "staff"];
 
 // Enrollment states that revoke network privilege — a student in one of these
 // cannot log in. They come from a semester transition, which also force-disconnects
@@ -167,14 +163,54 @@ router.post("/login", async (req, res) => {
 
 // POST /api/auth/change-password — self-service password change, used both for the
 // mandatory first-login change and for a user changing their password anytime after.
-// data_usage rows are keyed by CURDATE(), so an allowance resets at the database
-// server's local midnight. Compute it the same way rather than in UTC, or the
-// countdown shown to a student would be hours out.
-function secondsUntilMidnight() {
-  const now = new Date();
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-  return Math.floor((midnight - now) / 1000);
-}
+// GET /api/auth/policy — what each role is entitled to, for anyone who asks.
+//
+// No authentication, and none is needed: these are the published house rules,
+// not anybody's personal figures. Putting them on the login screen answers the
+// question most people actually have before they type anything ("what do I even
+// get?"), which is otherwise only visible after connecting.
+//
+// Read from the same settings the enforcement reads, with the same fallbacks,
+// so the screen can never quote a number the system doesn't actually apply.
+router.get("/policy", async (req, res) => {
+  try {
+    const bandwidth = await getRoleBandwidthMap(CAPPED_ROLES);
+    const settings = await getSettings([
+      "one_device_policy",
+      ...CAPPED_ROLES.flatMap((role) => [
+        `data_cap_gb_${role}`,
+        `session_timeout_${role}`,
+        `max_devices_${role}`,
+      ]),
+    ]);
+    // Same rule login applies: the one-device policy overrides the per-role
+    // number rather than sitting beside it, so resolve it here instead of
+    // making the client reproduce the precedence.
+    const onePolicy = settings.one_device_policy !== "false"; // defaults ON
+
+    res.json({
+      roles: CAPPED_ROLES.map((role) => {
+        const capGb = Number(settings[`data_cap_gb_${role}`]);
+        const timeout = Number(settings[`session_timeout_${role}`]);
+        const devices = Number(settings[`max_devices_${role}`]);
+        return {
+          role,
+          dataCapGb: Number.isFinite(capGb) && capGb > 0 ? capGb : null, // null = unlimited
+          sessionMinutes: Number.isFinite(timeout) && timeout > 0
+            ? timeout
+            : DEFAULT_SESSION_TIMEOUT_MIN[role],
+          maxDevices: onePolicy
+            ? 1
+            : (Number.isFinite(devices) && devices > 0 ? devices : DEFAULT_MAX_DEVICES[role] || 1),
+          downMbps: bandwidth[role].downMbps || null, // null = unshaped
+          upMbps: bandwidth[role].upMbps || null,
+        };
+      }),
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load access policy." });
+  }
+});
 
 // POST /api/auth/usage — read-only allowance lookup. Deliberately creates nothing:
 // no session row, no RouterOS grant, no device slot consumed. That is the whole
@@ -204,26 +240,7 @@ router.post("/usage", async (req, res) => {
     // Enrollment status and the cap itself are NOT checked here. Those gate
     // connecting, not looking; refusing to show a dropped or exhausted student
     // their own figure would recreate the dead end this endpoint exists to remove.
-    const capSettings = CAPPED_ROLES.includes(user.role)
-      ? await getSettings([`data_cap_gb_${user.role}`])
-      : {};
-    const capGb = Number(capSettings[`data_cap_gb_${user.role}`]) || 0;
-
-    const [[usage]] = await db.query(
-      "SELECT bytes_used FROM data_usage WHERE user_id=? AND usage_date=CURDATE()",
-      [user.id]
-    );
-    const dataUsedMB = Math.round((usage?.bytes_used || 0) / (1024 * 1024));
-    const dataLimitMB = capGb > 0 ? capGb * 1024 : null; // null = unlimited
-
-    res.json({
-      username: user.student_number,
-      role: user.role,
-      dataUsedMB,
-      dataLimitMB,
-      remainingMB: dataLimitMB === null ? null : Math.max(0, dataLimitMB - dataUsedMB),
-      resetsInSec: secondsUntilMidnight(),
-    });
+    res.json({ username: user.student_number, ...(await getAllowance(user)) });
   } catch (err) {
     res.status(500).json({ message: "Failed to load data usage." });
   }

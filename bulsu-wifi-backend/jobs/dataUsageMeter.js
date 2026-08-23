@@ -2,10 +2,9 @@ const db = require("../db");
 const { getSettings, getRoleBandwidthMap } = require("../utils/settings");
 const { readQueueState, setQueueLimit, grantAccess, maxLimitMatches, ENABLED } = require("../utils/routeros");
 const { endSession, endGuestSession } = require("../utils/sessions");
+const { CAPPED_ROLES } = require("../utils/constants");
 
 const GB = 1024 * 1024 * 1024;
-const CAPPED_ROLES = ["student", "faculty", "staff"];
-
 // Phase 1: pull each active session's Simple Queue byte counter, accrue the
 // delta since last poll into that account's usage for today.
 async function meterActiveQueues(bandwidth) {

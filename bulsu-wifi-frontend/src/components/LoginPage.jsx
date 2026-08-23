@@ -8,6 +8,7 @@ import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import WifiIcon from "./ui/WifiIcon";
 import WelcomeScreen from "./WelcomeScreen";
+import PolicyCard from "./PolicyCard";
 import { greetingName } from "../utils/names";
 
 import { API_BASE } from "../config/api";
@@ -202,6 +203,8 @@ export default function LoginPage() {
             {loading ? "Connecting..." : "Connect to Wi-Fi"}
           </Button>
         </form>
+
+        <PolicyCard />
 
         <div className="mt-4 border-t border-slate-100 pt-4 text-center">
           <button

@@ -8,6 +8,11 @@ const ACCOUNT_NUMBER_LENGTH = 10;
 const ACCOUNT_NUMBER_PATTERN = /^\d{10}$/;
 const ACCOUNT_NUMBER_MESSAGE = `Student number / ID must be exactly ${ACCOUNT_NUMBER_LENGTH} digits.`;
 
+// Roles the account/day-based data cap applies to. Guests have their own per-QR
+// data_limit_gb mechanism (guestRoutes.js); admin has no client-facing usage
+// dashboard, so neither is metered or capped.
+const CAPPED_ROLES = ["student", "faculty", "staff"];
+
 // Per-role session window (minutes) used until an admin saves Settings → Network.
 // Shared because three places need the same fallback: login (which decides whether
 // an old session still holds a device slot), the dashboard countdown, and the
@@ -17,6 +22,7 @@ const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240, staff: 240, ad
 module.exports = {
   TRASH_RETENTION_DAYS,
   DEFAULT_SESSION_TIMEOUT_MIN,
+  CAPPED_ROLES,
   ACCOUNT_NUMBER_LENGTH,
   ACCOUNT_NUMBER_PATTERN,
   ACCOUNT_NUMBER_MESSAGE,

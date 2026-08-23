@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import PageBackground from "./layout/PageBackground";
@@ -7,6 +7,7 @@ import BulsuHeader from "./layout/BulsuHeader";
 import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import WifiIcon from "./ui/WifiIcon";
+import LoadingSpinner from "./ui/LoadingSpinner";
 
 import { API_BASE } from "../config/api";
 
@@ -26,6 +27,14 @@ function formatReset(sec) {
   return `in ${m}m`;
 }
 
+// "1h 12m" — how much of the session window is left.
+function formatRemaining(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 // Read-only allowance check. Reachable without network access — the walled garden
 // lets a cut-off device load the portal — so a student who has hit their cap can
 // still find out where they stand. Creates no session and no router grant.
@@ -36,6 +45,30 @@ export default function DataUsageCheck() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [usage, setUsage] = useState(null);
+  // Starts true so the password form never flashes up before the device has had
+  // its chance to be recognised.
+  const [detecting, setDetecting] = useState(true);
+
+  // The device asks about itself first. A phone that already holds an active
+  // session has been identified once and the router can confirm the address is
+  // still its own, so there is nothing left for a password to establish — the
+  // allowance just appears. Anything less than a clean match (no session, a
+  // recycled address, the portal's own browser) falls through to the form.
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get(`${API_BASE}/session/me`)
+      .then((res) => {
+        if (!cancelled) setUsage(res.data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setDetecting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleCheck = async (e) => {
     e.preventDefault();
@@ -67,7 +100,14 @@ export default function DataUsageCheck() {
         <Card>
           <BulsuHeader subtitle="Data Allowance" />
 
-          <p className="text-center text-xs text-gray-400 font-mono mb-5">{usage.username}</p>
+          <p className={`text-center text-xs text-gray-400 font-mono ${usage.recognizedDevice ? "mb-1" : "mb-5"}`}>
+            {usage.username}
+          </p>
+          {usage.recognizedDevice && (
+            <p className="text-center text-[11px] text-pink-600 font-medium mb-5">
+              Recognised from this device — no login needed
+            </p>
+          )}
 
           <div className="flex flex-col items-center mb-6">
             <div className="relative w-36 h-36">
@@ -106,6 +146,14 @@ export default function DataUsageCheck() {
               <dt className="text-gray-500">Resets</dt>
               <dd className="font-semibold text-wine-800 tabular-nums">{formatReset(usage.resetsInSec)}</dd>
             </div>
+            {usage.expiresInSec != null && (
+              <div className="flex justify-between py-1">
+                <dt className="text-gray-500">Session ends</dt>
+                <dd className="font-semibold text-wine-800 tabular-nums">
+                  {usage.expiresInSec > 0 ? `in ${formatRemaining(usage.expiresInSec)}` : "now"}
+                </dd>
+              </div>
+            )}
           </dl>
 
           <Button onClick={() => navigate("/")}>Back to login</Button>
@@ -117,14 +165,29 @@ export default function DataUsageCheck() {
     );
   }
 
+  if (detecting) {
+    return (
+      <PageBackground>
+        <Card>
+          <BulsuHeader subtitle="Check Data Usage" />
+          <div className="flex flex-col items-center gap-3 py-8">
+            <LoadingSpinner />
+            <p className="text-xs text-gray-400">Checking this device…</p>
+          </div>
+        </Card>
+      </PageBackground>
+    );
+  }
+
   return (
     <PageBackground>
       <Card>
         <BulsuHeader subtitle="Check Data Usage" />
 
         <p className="text-center text-xs text-gray-500 mb-5">
-          See how much of today's allowance you have left. This won't connect you
-          or use up a device slot.
+          This device isn't connected right now, so enter your details to see how
+          much of today's allowance you have left. This won't connect you or use
+          up a device slot.
         </p>
 
         <form onSubmit={handleCheck}>

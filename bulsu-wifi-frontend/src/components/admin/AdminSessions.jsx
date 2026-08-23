@@ -231,7 +231,7 @@ export default function AdminSessions() {
             <option value="device_disconnected">Device Disconnected</option>
             <option value="timeout">Timeout</option>
             <option value="force_disconnect">Force Disconnect</option>
-            <option value="data_limit">Data Limit</option>
+            <option value="data_limit_exceeded">Data Limit</option>
           </select>
         )}
       </div>
