@@ -52,10 +52,14 @@ router.post('/', async (req, res) => {
     const finalRole = role || 'student';
     if (!VALID_IMPORT_ROLES.includes(finalRole))
       return res.status(400).json({ message: 'role must be one of: student, faculty, staff.' });
+    // enrollment_status is student-only and guarded by a CHECK that accepts the four enum
+    // values or NULL — the form sends "" for faculty/staff, which the CHECK rejects outright.
+    // Normalize here the same way the roster import does.
+    const finalEnrollment = finalRole === 'student' ? enrollment_status || 'enrolled' : null;
     const hashed = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       'INSERT INTO users (student_number, full_name, birth_date, course_id, section_id, enrollment_status, password_hash, role, status, must_change_password) VALUES (?,?,?,?,?,?,?,?,?,1)',
-      [String(student_number).trim(), full_name, birthdate, finalRole === 'student' ? normalizeId(course_id) : null, finalRole === 'student' ? normalizeId(section_id) : null, enrollment_status, hashed, finalRole, 'active']
+      [String(student_number).trim(), full_name, birthdate, finalRole === 'student' ? normalizeId(course_id) : null, finalRole === 'student' ? normalizeId(section_id) : null, finalEnrollment, hashed, finalRole, 'active']
     );
     await logAudit(req, {
       action: ACTIONS.CREATED,
@@ -103,7 +107,8 @@ router.put('/:id', async (req, res) => {
       full_name,
       courseSectionAllowed ? normalizeId(course_id) : null,
       courseSectionAllowed ? normalizeId(section_id) : null,
-      enrollment_status,
+      // Same CHECK applies on update — a student switched to faculty/staff arrives with "".
+      courseSectionAllowed ? enrollment_status || null : null,
     ];
     if (birthdateGiven) {
       fields.push('birth_date=?');
