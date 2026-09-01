@@ -1,13 +1,13 @@
 const express = require("express");
 const router = express.Router();
+const jwt = require("jsonwebtoken");
 const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
 const { getRoleSessionMinutes } = require("../utils/settings");
 const { getNoticeThresholds } = require("../jobs/sessionNotices");
 const { endSession } = require("../utils/sessions");
 const { getAllowance } = require("../utils/allowance");
-const { readNetworkPresence } = require("../utils/routeros");
-const { normalizeIp, isGrantableIp } = require("../utils/ip");
+const { callerAddress, addressStillHeldBy } = require("../utils/device");
 
 // "2023123456" -> "••••••3456". Confirms whose figures these are to the person
 // holding the device, without printing an account number in full.
@@ -16,48 +16,37 @@ function maskAccountNumber(value) {
   return text.length <= 4 ? text : "•".repeat(text.length - 4) + text.slice(-4);
 }
 
+// Which active account session, if any, belongs to the device making this
+// request. See utils/device.js for what stands in for a password here and why
+// it holds. Takes no input at all, so there is nothing to enumerate: a caller
+// learns only about the device they are already sitting on. null means "not
+// recognised".
+async function recognizeDevice(req) {
+  const ip = callerAddress(req);
+  if (!ip) return null;
+
+  const [[session]] = await db.query(
+    `SELECT s.id, s.mac_address, s.login_time, u.id AS user_id, u.student_number, u.role
+       FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.status = 'active' AND s.ip_address = ?
+      ORDER BY s.login_time DESC LIMIT 1`,
+    [ip]
+  );
+  if (!session) return null;
+  if (!(await addressStillHeldBy(ip, session.mac_address))) return null;
+  return session;
+}
+
 // GET /api/session/me — this device's own allowance, with nothing to type.
 //
 // The allowance page has always demanded a password, because the password was
 // the only thing tying a request to a person. On a captive portal it doesn't
-// have to be: a device that already holds an active session has been identified
-// once already, and the router can confirm the address still belongs to it.
-// So the credential here is network position — you are the device holding that
-// lease, and the router agrees it is associated right now. That is precisely the
-// trust the hotspot already extends to that address when it routes its packets.
-//
-// The MAC cross-check is what makes it safe to lean on: DHCP handing the address
-// to somebody else changes the MAC, and the match fails, so a recycled lease
-// cannot show the previous holder's figures. When the router can't be reached
-// the check degrades to the address alone, which still requires the caller to
-// actually hold it on the LAN.
-//
-// Takes no input at all, so there is nothing to enumerate: a caller learns only
-// about the device they are already sitting on. 404 means "not recognised" —
-// the page falls back to asking for a password.
+// have to be — recognizeDevice() above explains what stands in for it. 404 means
+// "not recognised": the page falls back to asking for a password.
 router.get("/me", async (req, res) => {
   try {
-    const ip = normalizeIp(req.ip);
-    // Loopback (the portal laptop's own browser) has no lease and no router
-    // footprint, so there is no device here to recognise.
-    if (!isGrantableIp(ip)) return res.status(404).json({ message: "This device isn't connected." });
-
-    const [[session]] = await db.query(
-      `SELECT s.id, s.mac_address, s.login_time, u.id AS user_id, u.student_number, u.role
-         FROM sessions s JOIN users u ON u.id = s.user_id
-        WHERE s.status = 'active' AND s.ip_address = ?
-        ORDER BY s.login_time DESC LIMIT 1`,
-      [ip]
-    );
+    const session = await recognizeDevice(req);
     if (!session) return res.status(404).json({ message: "This device isn't connected." });
-
-    const presence = await readNetworkPresence();
-    if (presence) {
-      const current = presence.macByIp.get(ip) || null;
-      const recorded = session.mac_address ? session.mac_address.toUpperCase() : null;
-      const present = !!current && presence.liveMacs.has(current) && (!recorded || recorded === current);
-      if (!present) return res.status(404).json({ message: "This device isn't connected." });
-    }
 
     const timeoutMinutes = await getRoleSessionMinutes(session.role);
     const elapsedSec = Math.floor((Date.now() - new Date(session.login_time).getTime()) / 1000);
@@ -72,6 +61,38 @@ router.get("/me", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to load this device's allowance." });
+  }
+});
+
+// POST /api/session/claim — hands this device a token for the session it is
+// already holding.
+//
+// Login happens inside the phone's captive-portal window (iOS' Captive Network
+// Assistant, Android's "Sign in to network" sheet), and the OS closes that
+// window seconds later, the moment its connectivity check starts passing. The
+// dashboard rendered there goes with it. The browser the user actually watches
+// their data and time in is a separate storage sandbox, so the token minted at
+// login is not there and never can be — nothing can copy it across.
+//
+// So the real browser asks to be recognised instead. This is not a new grant:
+// the device proved who it was at login, the router still says that address is
+// that MAC, and what comes back carries the same claims the login already
+// issued to the very same phone. There is nothing here that can start a
+// session, extend one, or reach an account that isn't already live on this
+// address — an unrecognised caller gets a 404 and a login form.
+router.post("/claim", async (req, res) => {
+  try {
+    const session = await recognizeDevice(req);
+    if (!session) return res.status(404).json({ message: "This device isn't connected." });
+
+    const token = jwt.sign(
+      { id: session.user_id, role: session.role, sessionId: session.id },
+      process.env.JWT_SECRET,
+      { expiresIn: "8h" }
+    );
+    res.json({ token, role: session.role });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to recognise this device." });
   }
 });
 

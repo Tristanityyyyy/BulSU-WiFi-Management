@@ -29,6 +29,12 @@ function formatData(mb) {
   return `${Math.round(mb)} MB`;
 }
 
+// Read at call time rather than once per render: the token can arrive part-way
+// through this component's life, when a browser that started without one claims
+// it from the backend below.
+const readToken = () => (typeof window !== "undefined" ? localStorage.getItem("token") : null);
+const authHeaders = () => ({ Authorization: `Bearer ${readToken()}` });
+
 export default function SessionDashboard() {
   const [session, setSession] = useState(null);
   const [secondsLeft, setSecondsLeft] = useState(null);
@@ -44,13 +50,38 @@ export default function SessionDashboard() {
   // that, on iOS, essentially never fired — and it never warned about time at all.
   const [notices, setNotices] = useState([]);
   const announced = useRef(new Set());
+  // This page is reached two ways now. From the captive-portal window that just
+  // logged in, a token is already in hand. From the device's own browser — the
+  // one the user was handed off to, and the only one that stays open — there is
+  // no token and there never will be, because that window's storage is a
+  // separate sandbox. That arrival asks the backend to recognise the device and
+  // issue one; see POST /api/session/claim.
+  const [claiming, setClaiming] = useState(!readToken());
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  useEffect(() => {
+    if (!claiming) return;
+    let cancelled = false;
+    axios
+      .post(`${API_BASE}/session/claim`)
+      .then((res) => {
+        if (cancelled) return;
+        localStorage.setItem("token", res.data.token);
+        setClaiming(false);
+      })
+      .catch(() => {
+        // Not a connected device — nothing to show, so ask for a password. The
+        // flag keeps the login page from bouncing straight back here.
+        if (!cancelled) window.location.replace("/?login=1");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [claiming]);
 
   const fetchNotices = async () => {
     try {
       const res = await axios.get(`${API_BASE}/session/notifications`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
       });
       const unread = (res.data?.notifications || []).filter((n) => !n.is_read);
       setNotices(unread);
@@ -75,7 +106,7 @@ export default function SessionDashboard() {
       await axios.post(
         `${API_BASE}/session/notifications/read`,
         { ids: [id] },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
     } catch {
       // Dismissed locally either way; the next poll will restore it if the
@@ -86,7 +117,7 @@ export default function SessionDashboard() {
   const fetchStatus = async () => {
     try {
       const res = await axios.get(`${API_BASE}/session/status`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
       });
       setSession(res.data);
       setSecondsLeft(res.data.expiresInSec);
@@ -107,11 +138,12 @@ export default function SessionDashboard() {
   };
 
   useEffect(() => {
+    if (claiming) return; // no token yet — polling now would only 401
     if (disconnecting || disconnected) return; // session is being torn down — stop polling it
     fetchStatus();
     const poll = setInterval(fetchStatus, POLL_INTERVAL_MS);
     return () => clearInterval(poll);
-  }, [disconnecting, disconnected]);
+  }, [claiming, disconnecting, disconnected]);
 
   useEffect(() => {
     if (secondsLeft == null) return;
@@ -143,7 +175,7 @@ export default function SessionDashboard() {
     disconnectingRef.current = true;
     setDisconnecting(true);
     try {
-      await axios.post(`${API_BASE}/session/disconnect`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_BASE}/session/disconnect`, {}, { headers: authHeaders() });
     } catch {
       // drop local session regardless
     } finally {
@@ -157,7 +189,7 @@ export default function SessionDashboard() {
 
   const handleFeedbackSubmit = async ({ stars, comment }) => {
     try {
-      await axios.post(`${API_BASE}/feedback`, { stars, comment }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_BASE}/feedback`, { stars, comment }, { headers: authHeaders() });
     } catch {
       // best-effort — don't block logout on a failed feedback submission
     } finally {
@@ -280,6 +312,16 @@ export default function SessionDashboard() {
 
         <p className="text-center text-xs text-gray-400 mt-4">
           Usage updates every {POLL_INTERVAL_MS / 1000}s. Values may lag slightly behind actual network activity.
+        </p>
+
+        {/* This device is recognised on sight now, so the login form is no longer
+            somewhere you land by accident — anyone who actually wants it (an
+            admin on a phone that holds a session, a shared device changing
+            hands) needs a way back to it that survives that recognition. */}
+        <p className="text-center text-xs text-gray-400 mt-2">
+          <a href="/?login=1" className="text-pink-600 hover:text-pink-700 font-medium transition">
+            Not you? Log in with another account
+          </a>
         </p>
       </div>
 
