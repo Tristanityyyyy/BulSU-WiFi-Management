@@ -1,4 +1,4 @@
-import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren } from "lucide-react";
+import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren, Ticket } from "lucide-react";
 import SectionCard from "./SectionCard";
 import { ROLE_LABELS } from "../../../constants/roles";
 
@@ -102,25 +102,55 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
         />
       )}
       {activeSection === "datacap" && (
-        <RoleTable
-          icon={<Database size={16} />}
-          title="Data Cap per Day"
-          hint="Data allowance per account, per day — 0 means unlimited."
-          settings={settings}
-          onChange={onChange}
-          columns={[
-            { key: "data_cap_gb", label: "Data Cap", unit: "GB", step: 0.1 },
-          ]}
-        />
+        <div className="space-y-4">
+          {/* Guests are absent here for the same reason they are absent from the
+              timeout table: this is a per-account, per-day allowance, and a guest
+              has neither an account nor a second day. Their allowance is a total
+              carried by the voucher, and CAPPED_ROLES in the backend has never
+              included them — a guest row here was collected and never read. */}
+          <RoleTable
+            icon={<Database size={16} />}
+            title="Data Cap per Day"
+            hint="Data allowance per account, per day — 0 means unlimited. Guest allowance is per voucher, set below."
+            settings={settings}
+            onChange={onChange}
+            roles={["student", "faculty", "staff"]}
+            columns={[
+              { key: "data_cap_gb", label: "Data Cap", unit: "GB", step: 0.1 },
+            ]}
+          />
+          <SectionCard
+            icon={<Ticket size={16} />}
+            title="Default Voucher Data Limit"
+            hint="What a new guest voucher is pre-filled with on the Guest Access page — per guest, for the whole voucher, not per day. It can be changed when issuing one.">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0.1}
+                step={0.1}
+                value={settings.guest_data_limit_gb ?? ""}
+                onChange={(e) => onChange("guest_data_limit_gb", e.target.value)}
+                className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent w-20 transition"
+              />
+              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">GB per guest</span>
+            </div>
+          </SectionCard>
+        </div>
       )}
       {activeSection === "timeout" && (
         <div className="space-y-4">
+          {/* Guests are deliberately absent. Their session does not run on a
+              role-wide timeout at all — each voucher carries its own start and
+              expiry, set on the Guest Access page when it is issued, and that
+              window is what ends the session. A guest row here was a control
+              that looked live and governed nothing. */}
           <RoleTable
             icon={<Timer size={16} />}
             title="Session Timeout"
-            hint="How long a session stays active before re-login."
+            hint="How long a session stays active before re-login. Guest vouchers carry their own window — set it on the Guest Access page."
             settings={settings}
             onChange={onChange}
+            roles={["student", "faculty", "staff"]}
             columns={[
               { key: "session_timeout", label: "Timeout", type: "duration" },
             ]}

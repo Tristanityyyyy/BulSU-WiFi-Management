@@ -16,9 +16,13 @@ const DEFAULTS = {
   bandwidth_upload_staff: 5,     bandwidth_download_staff: 10,
   bandwidth_upload_guest: 1,     bandwidth_download_guest: 2,
   data_cap_gb_student: 1,        data_cap_gb_faculty: 0,
-  data_cap_gb_staff: 0,          data_cap_gb_guest: 0.5,
+  data_cap_gb_staff: 0,
+  // Not a daily cap and not per role: the total a single guest voucher is
+  // issued with by default. Read by AdminGuests when it pre-fills the form.
+  guest_data_limit_gb: 1,
   session_timeout_student: 120,  session_timeout_faculty: 240,
-  session_timeout_staff: 240,    session_timeout_guest: 60,
+  // No guest entry: a voucher's window is its own, set when it is issued.
+  session_timeout_staff: 240,
   presence_grace_minutes: 5,
   notify_low_data_mb: 200,       notify_low_time_min: 15,
   emergency_priority_mode: "true",
