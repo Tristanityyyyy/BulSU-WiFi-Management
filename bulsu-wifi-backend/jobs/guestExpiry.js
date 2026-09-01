@@ -1,10 +1,10 @@
 const db = require("../db");
 const { revokeAccess } = require("../utils/routeros");
 
-// Ends every active guest_session whose QR code is no longer valid — either its
+// Ends every active guest_session whose voucher is no longer valid — either its
 // window closed (expires_at passed) or an admin revoked it early (guests.status
 // flipped to 'expired' while expires_at is still in the future). Pass a guestId
-// to scope this to one code, which is what the admin Revoke endpoint does so the
+// to scope this to one voucher, which is what the admin Revoke endpoint does so the
 // disconnect is immediate instead of waiting for the next sweep.
 //
 // Each session's MikroTik grant is revoked one at a time: a set-based UPDATE
@@ -61,9 +61,9 @@ async function endLapsedGuestSessions(guestId) {
   return { ended, pending };
 }
 
-// Auto-expire guest QR codes once their access window closes: flip the token
+// Auto-expire guest vouchers once their access window closes: flip the voucher
 // itself to 'expired' so the DB matches what every read-time check already
-// assumes, then end any session still running on a lapsed or revoked code.
+// assumes, then end any session still running on a lapsed or revoked one.
 async function sweepExpiredGuests() {
   await db.query(
     "UPDATE guests SET status='expired' WHERE status IN ('active','used') AND expires_at <= NOW()"
@@ -71,10 +71,18 @@ async function sweepExpiredGuests() {
   return endLapsedGuestSessions();
 }
 
-function startGuestExpirySweeper(intervalMs = 60 * 1000) {
-  // A sweep now makes one router round-trip (8s timeout) per expiring session,
-  // so it can outlast the interval. Skip a tick rather than run two sweeps —
-  // and the admin guest list triggers sweeps too.
+// Every 10 seconds, which is how long a guest can still be browsing after their
+// voucher ran out. A minute was the old figure and it was chosen against a cost
+// that is not really there: a sweep with nothing to do is one UPDATE and one
+// SELECT that returns no rows, and the router is not contacted at all — the
+// round-trips below happen per *lapsed* session, so they are paid only when
+// somebody is actually being disconnected. Polling six times as often therefore
+// costs six cheap queries a minute, not six times the router traffic.
+function startGuestExpirySweeper(intervalMs = 10 * 1000) {
+  // A sweep that does have work makes one router round-trip (8s timeout) per
+  // expiring session, so it can far outlast the interval. Skip a tick rather
+  // than run two sweeps — two would read the same rows and race on ending them.
+  // The admin guest list triggers sweeps too.
   let running = false;
   const run = async () => {
     if (running) return;

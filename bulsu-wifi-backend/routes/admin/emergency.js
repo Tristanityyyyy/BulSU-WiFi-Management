@@ -37,7 +37,7 @@ async function resolveTargets(target_type, target_id) {
     );
     if (guestRows.length === 0) return { error: { status: 404, message: 'No matching guests found.' } };
 
-    // guest_name lives on the session (a per-connection field), not the guest/QR record itself —
+    // guest_name lives on the session (a per-connection field), not the voucher record itself —
     // use whichever session was most recent per guest so labels reflect who's actually connected.
     const [sessionRows] = await db.query(
       `SELECT guest_id, guest_name FROM guest_sessions WHERE guest_id IN (${guestRows.map(() => '?').join(',')}) ORDER BY login_time DESC`,

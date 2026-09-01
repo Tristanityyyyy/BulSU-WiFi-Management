@@ -1,0 +1,24 @@
+<!-- Lives at bulsu-wifi-backend/scripts/hotspot-login.html; RouterOS copy is hotspot/login.html -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BULSU WiFi</title>
+<script>
+(function () {
+  var portal = "http://192.168.88.5:5173/";
+  var orig = "";
+  try { orig = decodeURIComponent("$(link-orig-esc)"); } catch (e) {}
+  // A guest link can name a page on the portal itself (/guest, or /guest?code=
+  // ... when a voucher is sent ahead). This file is served in place of whatever
+  // the device asked for, so unless that destination is carried through, every
+  // such link lands on the portal root and a visitor gets the staff login form.
+  window.location.replace(orig.indexOf("192.168.88.5:5173") !== -1 ? orig : portal);
+})();
+</script>
+<meta http-equiv="refresh" content="1; url=http://192.168.88.5:5173/">
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:2em">
+<a href="http://192.168.88.5:5173/">Tap here to connect</a>
+</body>
+</html>

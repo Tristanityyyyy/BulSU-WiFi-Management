@@ -99,7 +99,7 @@ async function enforceDailyCaps(priorities) {
 
 // Guests are metered on the same tick, but against a different model: usage
 // accrues on the guest_session itself (not a per-day data_usage row) and the cap
-// is the QR's own total `data_limit_gb`, not a per-role daily cap. Both accrual
+// is the voucher's own total `data_limit_gb`, not a per-role daily cap. Both accrual
 // and cutoff happen together per session, since a guest has exactly one queue.
 async function meterAndCapGuests(roleLimits, priorities) {
   // No `queue_id IS NOT NULL` filter: a session whose grant failed at verify has

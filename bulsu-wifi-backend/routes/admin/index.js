@@ -12,5 +12,6 @@ router.use('/feedback',      require('./feedback'));
 router.use('/notifications', require('./notifications'));
 router.use('/settings',      require('./settings'));
 router.use('/audit-log',     require('./audit-log'));
+router.use('/portal-address', require('./portal-address'));
 
 module.exports = router;

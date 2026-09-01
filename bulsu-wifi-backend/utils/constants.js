@@ -8,7 +8,7 @@ const ACCOUNT_NUMBER_LENGTH = 10;
 const ACCOUNT_NUMBER_PATTERN = /^\d{10}$/;
 const ACCOUNT_NUMBER_MESSAGE = `Student number / ID must be exactly ${ACCOUNT_NUMBER_LENGTH} digits.`;
 
-// Roles the account/day-based data cap applies to. Guests have their own per-QR
+// Roles the account/day-based data cap applies to. Guests have their own per-voucher
 // data_limit_gb mechanism (guestRoutes.js); admin has no client-facing usage
 // dashboard, so neither is metered or capped.
 const CAPPED_ROLES = ["student", "faculty", "staff"];
