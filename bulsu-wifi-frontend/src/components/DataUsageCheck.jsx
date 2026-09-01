@@ -10,6 +10,8 @@ import WifiIcon from "./ui/WifiIcon";
 import LoadingSpinner from "./ui/LoadingSpinner";
 
 import { API_BASE } from "../config/api";
+import AddToHomeScreen from "./ui/AddToHomeScreen";
+import { authHeaders, storeGuestToken } from "../utils/portalToken";
 
 const LOW_DATA_THRESHOLD_MB = 200;
 
@@ -35,6 +37,27 @@ function formatRemaining(sec) {
   return `${m}m`;
 }
 
+// A guest's figures in the same shape as an account holder's, so one view can
+// render either. Two differences are real rather than cosmetic: a voucher has a
+// total rather than a daily allowance, so there is nothing to reset and that row
+// is left out; and the window that matters is the voucher's own expiry.
+function usageFromGuest(guest) {
+  const usedMB = Math.round((guest.bytesUsed || 0) / (1024 * 1024));
+  const limitMB = guest.dataLimitMb ?? null;
+  return {
+    kind: "guest",
+    username: guest.guestName || "Guest",
+    recognizedDevice: true,
+    dataUsedMB: usedMB,
+    dataLimitMB: limitMB,
+    remainingMB: limitMB == null ? null : Math.max(0, limitMB - usedMB),
+    resetsInSec: null,
+    expiresInSec: guest.expiresAt
+      ? Math.max(0, Math.floor((new Date(guest.expiresAt) - Date.now()) / 1000))
+      : null,
+  };
+}
+
 // Read-only allowance check. Reachable without network access — the walled garden
 // lets a cut-off device load the portal — so a student who has hit their cap can
 // still find out where they stand. Creates no session and no router grant.
@@ -54,17 +77,44 @@ export default function DataUsageCheck() {
   // still its own, so there is nothing left for a password to establish — the
   // allowance just appears. Anything less than a clean match (no session, a
   // recycled address, the portal's own browser) falls through to the form.
+  //
+  // Guests are asked about second, on the same terms. They have no account to
+  // fall back on, so being recognised is not a convenience for them — it is the
+  // only way they can ever see these figures. Their voucher is not a substitute:
+  // several guests can hold the same code, so it names a voucher, not a person.
   useEffect(() => {
     let cancelled = false;
-    axios
-      .get(`${API_BASE}/session/me`)
-      .then((res) => {
+
+    const detect = async () => {
+      // Whatever this browser kept goes first. A token outlives the lease the
+      // device was recognised on, which is the difference between "works until
+      // your phone reconnects" and "works".
+      try {
+        const res = await axios.get(`${API_BASE}/session/me`, { headers: authHeaders("token") });
         if (!cancelled) setUsage(res.data);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setDetecting(false);
-      });
+        return;
+      } catch {
+        // Not an account session — a guest pass is the other thing this device
+        // could be holding.
+      }
+
+      try {
+        const res = await axios.get(`${API_BASE}/guest/me`, { headers: authHeaders("guestToken") });
+        if (!cancelled && res.data.status === "active") {
+          setUsage(usageFromGuest(res.data));
+          // Recognised by device but holding nothing: take a token now, so the
+          // next visit does not depend on being recognised all over again.
+          storeGuestToken();
+          return;
+        }
+      } catch {
+        // Not connected at all — the form below is the remaining route.
+      }
+
+      if (!cancelled) setDetecting(false);
+    };
+
+    detect();
     return () => {
       cancelled = true;
     };
@@ -139,13 +189,16 @@ export default function DataUsageCheck() {
 
           <dl className="rounded-2xl border border-pink-100 bg-pink-50/60 px-4 py-3 mb-6 text-sm">
             <div className="flex justify-between py-1">
-              <dt className="text-gray-500">Used today</dt>
+              <dt className="text-gray-500">{usage.kind === "guest" ? "Used" : "Used today"}</dt>
               <dd className="font-semibold text-wine-800 tabular-nums">{formatData(usage.dataUsedMB)}</dd>
             </div>
-            <div className="flex justify-between py-1">
-              <dt className="text-gray-500">Resets</dt>
-              <dd className="font-semibold text-wine-800 tabular-nums">{formatReset(usage.resetsInSec)}</dd>
-            </div>
+            {/* A voucher is a total, not a daily allowance — nothing resets. */}
+            {usage.resetsInSec != null && (
+              <div className="flex justify-between py-1">
+                <dt className="text-gray-500">Resets</dt>
+                <dd className="font-semibold text-wine-800 tabular-nums">{formatReset(usage.resetsInSec)}</dd>
+              </div>
+            )}
             {usage.expiresInSec != null && (
               <div className="flex justify-between py-1">
                 <dt className="text-gray-500">Session ends</dt>
@@ -156,10 +209,17 @@ export default function DataUsageCheck() {
             )}
           </dl>
 
-          <Button onClick={() => navigate("/")}>Back to login</Button>
-          <Button variant="outline" className="mt-2" onClick={() => { setUsage(null); setPassword(""); }}>
-            Check another account
-          </Button>
+          <AddToHomeScreen />
+
+          <Button onClick={() => navigate("/")}>Back to portal</Button>
+          {/* Offered only to account holders: there is no second guest pass to
+              check from here, and the form it reveals asks for a login a guest
+              does not have. */}
+          {usage.kind !== "guest" && (
+            <Button variant="outline" className="mt-2" onClick={() => { setUsage(null); setPassword(""); }}>
+              Check another account
+            </Button>
+          )}
         </Card>
       </PageBackground>
     );
@@ -188,6 +248,15 @@ export default function DataUsageCheck() {
           This device isn't connected right now, so enter your details to see how
           much of today's allowance you have left. This won't connect you or use
           up a device slot.
+        </p>
+
+        {/* A guest reaching this point cannot go further, and should be told why
+            rather than left staring at a login they do not have. Their voucher
+            would not help: with seats, one code is held by several people, so it
+            identifies a voucher and not a person — only the device does that. */}
+        <p className="text-center text-[11px] text-gray-400 mb-5">
+          Visiting on a guest voucher? Reconnect to the Wi-Fi and open this page
+          again — your figures are tied to your device, not to your code.
         </p>
 
         <form onSubmit={handleCheck}>

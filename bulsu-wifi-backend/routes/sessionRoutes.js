@@ -7,7 +7,7 @@ const { getRoleSessionMinutes } = require("../utils/settings");
 const { getNoticeThresholds } = require("../jobs/sessionNotices");
 const { endSession } = require("../utils/sessions");
 const { getAllowance } = require("../utils/allowance");
-const { callerAddress, addressStillHeldBy } = require("../utils/device");
+const { findSessionForCaller } = require("../utils/device");
 
 // "2023123456" -> "••••••3456". Confirms whose figures these are to the person
 // holding the device, without printing an account number in full.
@@ -21,20 +21,66 @@ function maskAccountNumber(value) {
 // it holds. Takes no input at all, so there is nothing to enumerate: a caller
 // learns only about the device they are already sitting on. null means "not
 // recognised".
-async function recognizeDevice(req) {
-  const ip = callerAddress(req);
-  if (!ip) return null;
+//
+// Found by address, or failing that by MAC — a phone that rejoined the Wi-Fi
+// and picked up a different lease is still the same device, and the address it
+// used to hold is no longer a way to say so.
+const SESSION_FIELDS = `s.id, s.mac_address, s.login_time,
+          u.id AS user_id, u.student_number, u.role
+     FROM sessions s JOIN users u ON u.id = s.user_id`;
 
-  const [[session]] = await db.query(
-    `SELECT s.id, s.mac_address, s.login_time, u.id AS user_id, u.student_number, u.role
+async function recognizeDevice(req) {
+  return findSessionForCaller(req, {
+    byAddress: async (ip) => {
+      const [[row]] = await db.query(
+        `SELECT ${SESSION_FIELDS} WHERE s.status = 'active' AND s.ip_address = ?
+          ORDER BY s.login_time DESC LIMIT 1`,
+        [ip]
+      );
+      return row || null;
+    },
+    byMac: async (mac) => {
+      const [[row]] = await db.query(
+        `SELECT ${SESSION_FIELDS} WHERE s.status = 'active' AND UPPER(s.mac_address) = ?
+          ORDER BY s.login_time DESC LIMIT 1`,
+        [mac]
+      );
+      return row || null;
+    },
+  });
+}
+
+// The session a bearer token names, or null. The token is the one /claim
+// minted for this browser; honouring it here is what lets the allowance page
+// keep working after the lease underneath the device has changed. Never throws
+// on a bad token — an expired one is simply not a credential, and the device
+// check below is still there.
+async function sessionFromToken(req) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return null;
+  let claims;
+  try {
+    claims = jwt.verify(auth.slice(7), process.env.JWT_SECRET);
+  } catch {
+    return null;
+  }
+  if (!claims.sessionId || !claims.id) return null;
+
+  const [[row]] = await db.query(
+    `SELECT s.id, s.mac_address, s.login_time,
+            u.id AS user_id, u.student_number, u.role
        FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.status = 'active' AND s.ip_address = ?
-      ORDER BY s.login_time DESC LIMIT 1`,
-    [ip]
+      WHERE s.id = ? AND s.user_id = ? AND s.status = 'active' LIMIT 1`,
+    [claims.sessionId, claims.id]
   );
-  if (!session) return null;
-  if (!(await addressStillHeldBy(ip, session.mac_address))) return null;
-  return session;
+  return row || null;
+}
+
+// The caller's session, however they can prove it is theirs: the token their
+// browser kept, or the device they are sitting on. Token first — it costs no
+// router round-trip, and it is the one that survives a new lease.
+async function callerSession(req) {
+  return (await sessionFromToken(req)) || (await recognizeDevice(req));
 }
 
 // GET /api/session/me — this device's own allowance, with nothing to type.
@@ -45,7 +91,7 @@ async function recognizeDevice(req) {
 // "not recognised": the page falls back to asking for a password.
 router.get("/me", async (req, res) => {
   try {
-    const session = await recognizeDevice(req);
+    const session = await callerSession(req);
     if (!session) return res.status(404).json({ message: "This device isn't connected." });
 
     const timeoutMinutes = await getRoleSessionMinutes(session.role);

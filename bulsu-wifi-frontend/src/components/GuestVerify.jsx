@@ -5,6 +5,8 @@ import { Wifi, CheckCircle2, Clock, XCircle, User, KeyRound } from "lucide-react
 import FeedbackModal from "./feedback/FeedbackModal";
 
 import { API_BASE } from "../config/api";
+import AddToHomeScreen from "./ui/AddToHomeScreen";
+import { authHeaders, storeGuestToken } from "../utils/portalToken";
 
 const STATUS_POLL_MS = 20000;
 
@@ -12,7 +14,8 @@ const STATUS_POLL_MS = 20000;
 // gone. The bare host is what they are told to type; /guest is where it lands
 // them, recognised by device with no voucher involved.
 const portalHost = () => (typeof window !== "undefined" ? window.location.host : "");
-const guestSessionUrl = () => (typeof window !== "undefined" ? `${window.location.origin}/guest` : "/guest");
+// Where a guest reads their own figures without a voucher and without a login.
+const usageHost = () => (typeof window !== "undefined" ? `${window.location.host}/usage` : "/usage");
 
 
 function formatData(mb) {
@@ -63,8 +66,12 @@ export default function GuestVerify() {
     // True if this device is holding a live guest session, in which case the
     // connected view is shown straight away. See GET /api/guest/me.
     const showRecognizedSession = async () => {
-      const res = await axios.get(`${API_BASE}/guest/me`);
+      const res = await axios.get(`${API_BASE}/guest/me`, { headers: authHeaders("guestToken") });
       if (cancelled || res.data.status !== "active") return false;
+      // Ask for a token while we are demonstrably recognised. Best-effort:
+      // the session view below does not depend on getting one, only the ease
+      // of the next visit does.
+      storeGuestToken();
       setConnectedGuestName(res.data.guestName || "");
       setExpiresAt(new Date(res.data.expiresAt));
       setDataUsedMb(Math.round((res.data.bytesUsed || 0) / (1024 * 1024)));
@@ -203,8 +210,11 @@ export default function GuestVerify() {
         // poll with, so their session is read by device instead. Same payload
         // either way.
         const res = pass
-          ? await axios.get(`${API_BASE}/guest/session-status`, { params: { token: pass } })
-          : await axios.get(`${API_BASE}/guest/me`);
+          ? await axios.get(`${API_BASE}/guest/session-status`, {
+              params: { token: pass },
+              headers: authHeaders("guestToken"),
+            })
+          : await axios.get(`${API_BASE}/guest/me`, { headers: authHeaders("guestToken") });
         if (!active) return;
         setDataUsedMb(Math.round((res.data.bytesUsed || 0) / (1024 * 1024)));
         setDataLimitMb(res.data.dataLimitMb ?? null);
@@ -327,29 +337,31 @@ export default function GuestVerify() {
             <p className="text-xs text-gray-500 mb-2">
               To see your remaining time and data, open your browser and go to:
             </p>
-            <p className="font-mono text-base sm:text-lg font-semibold text-wine-800 bg-pink-50/60 border border-pink-100 rounded-2xl px-3 py-3 mb-5 break-all select-all">
+            <p className="font-mono text-base sm:text-lg font-semibold text-wine-800 bg-pink-50/60 border border-pink-100 rounded-2xl px-3 py-3 mb-2 break-all select-all">
               {portalHost()}
             </p>
+            {/* The same read-only address account holders are given. A guest has
+                no login to fall back on, so this is the only way they can look up
+                their own figures once the sign-in window has closed. */}
+            <p className="text-[11px] text-gray-400 mb-5">
+              Data check any time: <span className="font-mono text-gray-500 select-all">{usageHost()}</span>
+            </p>
 
-            <a
-              href={guestSessionUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full text-center bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white font-semibold py-2.5 sm:py-3 rounded-xl text-sm transition-all shadow-md shadow-pink-200 active:scale-[0.99]"
-            >
-              Open my session
-            </a>
+            {/* This stays inside the sign-in window — it cannot do otherwise, so
+                it no longer pretends to. The address above is the part that
+                actually survives this window closing. */}
             <button
               type="button"
               onClick={() => setStatus("success")}
-              className="w-full mt-2 border border-slate-200 text-gray-600 font-semibold py-2.5 sm:py-3 rounded-xl text-sm transition-all hover:bg-slate-50 active:scale-[0.99]"
+              className="w-full bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white font-semibold py-2.5 sm:py-3 rounded-xl text-sm transition-all shadow-md shadow-pink-200 active:scale-[0.99]"
             >
-              Continue here
+              View my session here
             </button>
 
             <p className="text-xs text-gray-400 mt-4">
-              You won't need the voucher again — this device is recognised while
-              your pass is running.
+              You won't need the voucher again. Open that address once in your
+              browser and you can add it to your home screen — after that it is
+              one tap.
             </p>
           </div>
         )}
@@ -363,6 +375,7 @@ export default function GuestVerify() {
             <p className="text-gray-600 text-sm mb-4">
               Welcome, <span className="font-medium">{connectedGuestName}</span>. You now have guest Wi-Fi access.
             </p>
+            <AddToHomeScreen />
             {countdown && (
               <div className="bg-pink-50/60 border border-pink-100 rounded-xl px-4 py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Session expires in</p>

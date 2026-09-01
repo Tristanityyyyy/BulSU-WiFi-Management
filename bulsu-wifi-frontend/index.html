@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/bulsu-logo.png" />
+    <!-- Installable so the portal can be kept on a home screen. The captive
+         window it is first seen in is closed by the OS moments later; an icon
+         is the only route back that survives that. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#9d174d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="BulSU Wi-Fi" />
+    <link rel="apple-touch-icon" href="/bulsu-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BulSU Wi-Fi Portal</title>
     <script>

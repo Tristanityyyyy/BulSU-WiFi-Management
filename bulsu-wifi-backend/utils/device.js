@@ -17,7 +17,7 @@
 // — identify their devices this way, so the check lives here rather than in
 // either route file.
 
-const { readNetworkPresence } = require("./routeros");
+const { readNetworkPresence, readClientMac } = require("./routeros");
 const { normalizeIp, isGrantableIp } = require("./ip");
 
 // The address this request came from, or null if it isn't one the router could
@@ -48,4 +48,45 @@ async function addressStillHeldBy(ip, recordedMac) {
   return !!current && presence.liveMacs.has(current) && (!recorded || recorded === current);
 }
 
-module.exports = { callerAddress, addressStillHeldBy };
+// The MAC of whoever is asking, or null when the router cannot say.
+//
+// Sits between callerAddress() and the session lookup: the address alone is a
+// weak name for a device, because DHCP reassigns it. A phone that drops the
+// Wi-Fi and rejoins is very often the same device on a different lease, and
+// keying a lookup on the address alone tells that phone it isn't recognised —
+// which is exactly the moment a user goes looking for their own figures.
+async function callerMac(req) {
+  const ip = callerAddress(req);
+  if (!ip) return null;
+  const mac = await readClientMac(ip);
+  return mac ? String(mac).toUpperCase() : null;
+}
+
+// Finds this request's session, by address first and by MAC second.
+//
+// `byAddress` and `byMac` are the two lookups the caller supplies, because the
+// two session kinds live in different tables; everything else about the
+// decision is the same for both and belongs here.
+//
+// The address match is tried first and is the cheap path — it needs no router
+// round-trip — and it still carries the MAC cross-check that makes leaning on
+// an address safe. Only when it misses do we pay for the router lookup, so a
+// device that never changed lease costs exactly what it always did.
+//
+// A MAC match needs no cross-check: it *is* the identity the cross-check was
+// protecting, and a caller cannot present a MAC of their choosing — it is read
+// from the router's own ARP and lease tables for the address the packet
+// actually arrived from.
+async function findSessionForCaller(req, { byAddress, byMac }) {
+  const ip = callerAddress(req);
+  if (!ip) return null;
+
+  const onAddress = await byAddress(ip);
+  if (onAddress && (await addressStillHeldBy(ip, onAddress.mac_address))) return onAddress;
+
+  const mac = await callerMac(req);
+  if (!mac) return null;
+  return (await byMac(mac)) || null;
+}
+
+module.exports = { callerAddress, addressStillHeldBy, callerMac, findSessionForCaller };

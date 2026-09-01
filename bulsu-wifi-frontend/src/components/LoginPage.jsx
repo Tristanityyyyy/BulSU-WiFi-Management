@@ -18,8 +18,12 @@ import { API_BASE } from "../config/api";
 // logged in from is about to be closed by the OS, so this is the address they
 // need to reach their session from the browser that stays open — derived from
 // however this page was itself reached, so it is right on any deployment.
+//
+// It is printed rather than linked because a link cannot leave this window.
 const portalHost = () => (typeof window !== "undefined" ? window.location.host : "");
-const dashboardUrl = () => (typeof window !== "undefined" ? `${window.location.origin}/dashboard` : "/dashboard");
+// Where anyone can read their own figures without logging in — see
+// components/DataUsageCheck.jsx.
+const usageHost = () => (typeof window !== "undefined" ? `${window.location.host}/usage` : "/usage");
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -273,25 +277,26 @@ export default function LoginPage() {
           <p className="text-xs text-gray-500 text-center mb-2">
             To see how much data and time you have left, open your browser and go to:
           </p>
-          <p className="text-center font-mono text-base sm:text-lg font-semibold text-wine-800 bg-pink-50/60 border border-pink-100 rounded-2xl px-3 py-3 mb-5 break-all select-all">
+          <p className="text-center font-mono text-base sm:text-lg font-semibold text-wine-800 bg-pink-50/60 border border-pink-100 rounded-2xl px-3 py-3 mb-2 break-all select-all">
             {portalHost()}
           </p>
+          {/* The read-only address, worth printing next to the other one because
+              it is the one that still answers after the allowance runs out — the
+              walled garden keeps the portal reachable, and this page asks for
+              nothing and starts nothing. */}
+          <p className="text-center text-[11px] text-gray-400 mb-5">
+            Data check any time: <span className="font-mono text-gray-500 select-all">{usageHost()}</span>
+          </p>
 
-          <a
-            href={dashboardUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-full text-center font-semibold py-2.5 sm:py-3 rounded-xl text-sm transition-all shadow-md bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white shadow-pink-200 hover:shadow-pink-300"
-          >
-            Open my session
-          </a>
-          <Button variant="outline" className="mt-2" onClick={() => navigate("/dashboard")}>
-            Continue here
-          </Button>
+          {/* This opens in the sign-in window, not the browser — no API can do
+              otherwise from here, and target=_blank only ever appeared to. It is
+              labelled for what it does now; the address above is the part that
+              survives this window being closed. */}
+          <Button onClick={() => navigate("/dashboard")}>View my session here</Button>
 
           <p className="text-center text-xs text-gray-400 mt-4">
-            No password needed next time — this device is recognised on sight
-            while your session is running.
+            No password needed next time. Open that address once in your browser
+            and you can add it to your home screen — after that it is one tap.
           </p>
         </Card>
       </PageBackground>
@@ -394,6 +399,15 @@ export default function LoginPage() {
             className="text-xs text-pink-600 font-medium hover:text-pink-700 hover:underline"
           >
             Visiting? Use a guest pass instead
+          </button>
+          {/* /usage was reachable but nothing anywhere linked to it, so the one
+              page that answers without a login was the hardest to find. */}
+          <button
+            type="button"
+            onClick={() => navigate("/usage")}
+            className="block w-full mt-2 text-xs text-gray-400 hover:text-pink-600 transition"
+          >
+            Check my data usage without connecting
           </button>
         </div>
         <p className="text-center text-xs text-gray-400 mt-3">

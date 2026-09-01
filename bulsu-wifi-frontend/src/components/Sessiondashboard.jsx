@@ -10,6 +10,7 @@ import SuccessDialog from "./ui/SuccessDialog";
 import FeedbackModal from "./feedback/FeedbackModal";
 
 import { API_BASE } from "../config/api";
+import AddToHomeScreen from "./ui/AddToHomeScreen";
 const POLL_INTERVAL_MS = 20000;
 // Only a fallback for the first render, before /session/status has answered with
 // the figure an admin actually configured.
@@ -305,6 +306,8 @@ export default function SessionDashboard() {
             <p className="text-[11px] text-red-500 mt-1">You'll be disconnected when this reaches zero.</p>
           )}
         </div>
+
+        <AddToHomeScreen />
 
         <Button onClick={() => setConfirmDisconnect(true)} disabled={disconnecting}>
           {disconnecting ? "Disconnecting..." : "Disconnect"}

@@ -1,9 +1,10 @@
 const express = require("express");
 const router = express.Router();
+const jwt = require("jsonwebtoken");
 const db = require("../db");
 const { grantAccess } = require("../utils/routeros");
 const { normalizeIp } = require("../utils/ip");
-const { callerAddress, addressStillHeldBy } = require("../utils/device");
+const { callerAddress, findSessionForCaller } = require("../utils/device");
 const { getRoleBandwidth } = require("../utils/settings");
 const { isGuestCodeShaped, normalizeGuestCode } = require("../utils/guestCode");
 
@@ -86,24 +87,83 @@ setInterval(() => {
   for (const [key, entry] of misses) if (entry.firstAt < cutoff) misses.delete(key);
 }, MISS_WINDOW_MS).unref();
 
+// A guest's own copy of their session, for the browser they keep.
+//
+// Account holders already have this: POST /api/session/claim hands the real
+// browser a token, so once they have arrived they stay recognised even if the
+// lease underneath them changes. Guests had nothing — every visit re-derived
+// them from the network, and the one visit that failed left them with no way
+// back at all, because unlike an account holder they have no password to fall
+// back on.
+//
+// Strictly a way to *read* one session. It carries a guest_session id and
+// nothing else — no role, no account — and every endpoint that spends anything
+// (verify) ignores it entirely. It cannot connect a guest, take a seat, extend
+// a voucher, or name a different session; and it dies with the session it
+// names, because the session is what is looked up and an ended one reports as
+// ended.
+const GUEST_TOKEN_TTL = "8h";
+
+function signGuestToken(guestSessionId) {
+  return jwt.sign({ guestSessionId, kind: "guest" }, process.env.JWT_SECRET, {
+    expiresIn: GUEST_TOKEN_TTL,
+  });
+}
+
+// The guest_session a bearer token names, or null. Never throws on a bad token:
+// an expired or malformed one is simply not a credential, and the device check
+// is still there to fall back on.
+async function sessionFromGuestToken(req) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return null;
+  let claims;
+  try {
+    claims = jwt.verify(auth.slice(7), process.env.JWT_SECRET);
+  } catch {
+    return null;
+  }
+  // An account token must not open a guest session, so the kind is checked
+  // rather than assumed from the shape.
+  if (claims.kind !== "guest" || !claims.guestSessionId) return null;
+
+  const [[row]] = await db.query(
+    `SELECT ${GUEST_SESSION_FIELDS} WHERE gs.id = ? LIMIT 1`,
+    [claims.guestSessionId]
+  );
+  return row || null;
+}
+
 // Which active guest session, if any, belongs to the device making this request
 // — the guest-pass counterpart of recognizeDevice() in sessionRoutes.js, sharing
 // the same check (utils/device.js). null means "not recognised".
-async function recognizeGuestDevice(req) {
-  const ip = callerAddress(req);
-  if (!ip) return null;
+//
+// This matters more for a guest than for an account holder: an account holder
+// who is not recognised can still type a password, and a guest has nothing to
+// type. Their voucher is not a substitute — several guests can hold the same
+// code, so it names a voucher and not a person.
+const GUEST_SESSION_FIELDS = `gs.id, gs.guest_name, gs.mac_address, gs.status,
+            gs.bytes_used, g.data_limit_gb, g.expires_at
+       FROM guest_sessions gs JOIN guests g ON g.id = gs.guest_id`;
 
-  const [[session]] = await db.query(
-    `SELECT gs.id, gs.guest_name, gs.mac_address, gs.status, gs.bytes_used,
-            g.data_limit_gb, g.expires_at
-       FROM guest_sessions gs JOIN guests g ON g.id = gs.guest_id
-      WHERE gs.status = 'active' AND gs.ip_address = ?
-      ORDER BY gs.id DESC LIMIT 1`,
-    [ip]
-  );
-  if (!session) return null;
-  if (!(await addressStillHeldBy(ip, session.mac_address))) return null;
-  return session;
+async function recognizeGuestDevice(req) {
+  return findSessionForCaller(req, {
+    byAddress: async (ip) => {
+      const [[row]] = await db.query(
+        `SELECT ${GUEST_SESSION_FIELDS} WHERE gs.status = 'active' AND gs.ip_address = ?
+          ORDER BY gs.id DESC LIMIT 1`,
+        [ip]
+      );
+      return row || null;
+    },
+    byMac: async (mac) => {
+      const [[row]] = await db.query(
+        `SELECT ${GUEST_SESSION_FIELDS} WHERE gs.status = 'active' AND UPPER(gs.mac_address) = ?
+          ORDER BY gs.id DESC LIMIT 1`,
+        [mac]
+      );
+      return row || null;
+    },
+  });
 }
 
 // GET /api/guest/token-status?token=...
@@ -241,6 +301,27 @@ router.post("/verify", async (req, res) => {
   }
 });
 
+// The caller's session, however they can prove it is theirs: the token their
+// browser kept, or failing that the device they are sitting on. Token first —
+// it is free, and it is the one that still works after a new lease.
+async function callerGuestSession(req) {
+  return (await sessionFromGuestToken(req)) || (await recognizeGuestDevice(req));
+}
+
+// POST /api/guest/claim — hands this device a token for the guest session it is
+// already holding. The guest counterpart of POST /api/session/claim; see
+// signGuestToken above for what the token can and cannot do.
+router.post("/claim", async (req, res) => {
+  try {
+    const session = await recognizeGuestDevice(req);
+    if (!session) return res.status(404).json({ message: "This device isn't connected." });
+    res.json({ token: signGuestToken(session.id), guestName: session.guest_name });
+  } catch (err) {
+    console.error("POST /guest/claim failed:", err);
+    res.status(500).json({ message: "Failed to recognise this device." });
+  }
+});
+
 // GET /api/guest/me — this device's own guest session, with no voucher needed.
 //
 // A guest is worse off than an account holder without this. Their credential is
@@ -259,7 +340,7 @@ router.post("/verify", async (req, res) => {
 // 404 means "not recognised", which the portal shows as "ask at the desk".
 router.get("/me", async (req, res) => {
   try {
-    const session = await recognizeGuestDevice(req);
+    const session = await callerGuestSession(req);
     if (!session) return res.status(404).json({ message: "This device isn't connected." });
 
     res.json({
@@ -279,26 +360,60 @@ router.get("/me", async (req, res) => {
 // GET /api/guest/session-status?token=...
 // Polled by the guest dashboard after connecting so it reflects reality — a
 // data-cap or admin cutoff ends the session server-side, and the client needs
-// to see that instead of counting down forever. Keyed off the voucher (no JWT
-// for guests); returns the latest session tied to it.
+// to see that instead of counting down forever.
+//
+// Which session on the voucher, though? While a voucher admitted one guest
+// that was not a question. A voucher with seats is held by several people at
+// once and they all have the same code, so the code cannot be what picks the
+// row — asking it for "the latest" handed whoever polled the figures of
+// whoever connected most recently. The caller's address picks it instead:
+// that is what the session was recorded against, and it is the same signal
+// /guest/me leans on. Ended sessions are in scope on purpose — a guest cut
+// off by the data cap is exactly who needs to be told.
 router.get("/session-status", async (req, res) => {
   try {
     const { token } = req.query;
     if (!token) return res.status(400).json({ message: "A code is required." });
 
-    // Same either-form pass as everywhere else, resolved to its row first so
-    // the join below does not have to know which column matched.
-    const guest = await findGuestByVoucher(token, "id");
+    // A kept token names one session outright, which is stricter than anything
+    // the voucher can narrow to — so when the browser has one, it decides.
+    const claimed = await sessionFromGuestToken(req);
+    if (claimed) {
+      return res.json({
+        status: claimed.status,
+        bytesUsed: Number(claimed.bytes_used || 0),
+        dataLimitMb: claimed.data_limit_gb > 0 ? claimed.data_limit_gb * 1024 : null,
+        expiresAt: claimed.expires_at,
+      });
+    }
+
+    const guest = await findGuestByVoucher(token, "id, max_uses");
     if (!guest) return res.status(404).json({ message: "No session found for this code." });
 
-    const [[row]] = await db.query(
-      `SELECT gs.status, gs.bytes_used, g.data_limit_gb, g.expires_at
+    const SESSION_COLUMNS = `gs.status, gs.bytes_used, g.data_limit_gb, g.expires_at
          FROM guest_sessions gs
-         JOIN guests g ON g.id = gs.guest_id
-        WHERE g.id = ?
-        ORDER BY gs.id DESC LIMIT 1`,
-      [guest.id]
-    );
+         JOIN guests g ON g.id = gs.guest_id`;
+
+    const ip = callerAddress(req);
+    let row = null;
+    if (ip) {
+      [[row]] = await db.query(
+        `SELECT ${SESSION_COLUMNS} WHERE g.id = ? AND gs.ip_address = ? ORDER BY gs.id DESC LIMIT 1`,
+        [guest.id, ip]
+      );
+    }
+
+    // A one-seat voucher has only one session to report, so an address the
+    // router could never place — the portal's own browser, a device behind
+    // something — still gets the right answer rather than none. With seats
+    // there is no right answer without an address, and a wrong one would be
+    // somebody else's, so the caller is told nothing.
+    if (!row && Number(guest.max_uses || 1) === 1) {
+      [[row]] = await db.query(
+        `SELECT ${SESSION_COLUMNS} WHERE g.id = ? ORDER BY gs.id DESC LIMIT 1`,
+        [guest.id]
+      );
+    }
     if (!row) return res.status(404).json({ message: "No session found for this code." });
 
     res.json({

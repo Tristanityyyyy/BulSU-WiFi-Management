@@ -104,7 +104,9 @@ const printGuestVoucher = (guest) => {
         ${guest.data_limit_gb} GB${seats > 1 ? " each" : ""}
         ${seats > 1 ? `&nbsp;·&nbsp; <b>${seats} guests</b> may use this voucher — one connection each` : ""}
       </p>
-      <p style="font-size:11px;color:#aaa;margin-top:10px">Valid ${new Date(guest.starts_at).toLocaleString()} — ${new Date(guest.expires_at).toLocaleString()}</p>
+      <p style="margin:16px 0 0;font-size:12px;color:#888">Check your remaining data any time at</p>
+      <p style="margin:2px 0 0;font-family:monospace;font-size:14px">${portalHostLabel()}/usage</p>
+      <p style="font-size:11px;color:#aaa;margin-top:14px">Valid ${new Date(guest.starts_at).toLocaleString()} — ${new Date(guest.expires_at).toLocaleString()}</p>
       <script>window.onload=()=>window.print()</script>
     </body></html>
   `);
