@@ -12,6 +12,14 @@ export default function useEmergencyActivation({ onActivated, onNeedsConfirm }) 
   const [activateModal, setActivateModal] = useState(false);
   const [targetType, setTargetType] = useState("student");
   const [reason, setReason] = useState("");
+
+  // What the activation grants, on top of whatever each target's role already
+  // gives them. Kept as strings because they are inputs: "" is a real state
+  // meaning "named no figure", which the backend reads as the blanket grant
+  // (unlimited bandwidth, cap waived) rather than as zero.
+  const [extraUp, setExtraUp] = useState("");
+  const [extraDown, setExtraDown] = useState("");
+  const [extraData, setExtraData] = useState("");
   const [activating, setActivating] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [formError, setFormError] = useState("");
@@ -65,6 +73,9 @@ export default function useEmergencyActivation({ onActivated, onNeedsConfirm }) 
     setActivateModal(false);
     setTargetType("student");
     setReason("");
+    setExtraUp("");
+    setExtraDown("");
+    setExtraData("");
     resetPickers(pickerSetters);
     setFormError("");
     setPreviewLoading(false);
@@ -121,20 +132,73 @@ export default function useEmergencyActivation({ onActivated, onNeedsConfirm }) 
     }));
   const catalogOptions = catalogMatches.slice(0, 20);
 
+  // Only send figures the admin actually typed. Sending 0 for an empty box
+  // would read as "add nothing", which is not the same request as "grant the
+  // usual blanket boost" and would leave people on their ordinary role limits
+  // in the middle of an emergency.
+  const grantPayload = () => {
+    const payload = {};
+    if (extraUp !== "") payload.extra_up_mbps = Number(extraUp);
+    if (extraDown !== "") payload.extra_down_mbps = Number(extraDown);
+    if (extraData !== "") payload.extra_data_gb = Number(extraData);
+    return payload;
+  };
+
+  // Caught here as well as on the server so a typo is answered immediately
+  // rather than after a round trip — the server still validates, since this is
+  // convenience and not the guard.
+  const grantError = () => {
+    const checks = [
+      [extraUp, 1000, "Extra upload"],
+      [extraDown, 1000, "Extra download"],
+      [extraData, 500, "Extra data"],
+    ];
+    for (const [raw, max, label] of checks) {
+      if (raw === "") continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0) return `${label} must be a number of 0 or more.`;
+      if (value > max) return `${label} must be ${max} or less.`;
+    }
+    return "";
+  };
+
   const selectionState = { selectedGuestIds, selectedUsers, selectedCatalog };
   const getTargetId = () => resolveTargetId(targetType, selectionState);
   const hasSelection = () => resolveHasSelection(targetType, selectionState);
+
+  // A name ending in an initial should not collect a second full stop.
+  const endsSentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+  const outcomeMessage = ({ activated, updated, updated_names, already_active, already_active_names, grant }) => {
+    const done = [];
+    if (activated > 0) done.push(`activated ${activated} ${activated === 1 ? "target" : "targets"}`);
+    if (updated > 0) done.push(`updated the grant for ${updated_names}`);
+
+    if (done.length === 0) {
+      return endsSentence(`${already_active_names} already ${already_active === 1 ? "has" : "have"} this grant`);
+    }
+    const skipped = already_active > 0
+      ? ` ${already_active_names} already had this grant and ${already_active === 1 ? "was" : "were"} left alone.`
+      : "";
+    // Sentence-cased by hand: the parts read as a list, and only the first
+    // should start with a capital.
+    const sentence = done.join(" and ");
+    return `${sentence[0].toUpperCase()}${sentence.slice(1)} — ${grant}.${skipped}`;
+  };
 
   const activate = async () => {
     setActivating(true);
     setFormError("");
     try {
-      const res = await adminApi.post("/admin/emergency", { reason: reason.trim(), target_type: targetType, target_id: getTargetId() });
+      const res = await adminApi.post("/admin/emergency", {
+        reason: reason.trim(),
+        target_type: targetType,
+        target_id: getTargetId(),
+        ...grantPayload(),
+      });
       closeModal();
-      const { activated, already_active, already_active_names } = res.data;
-      onActivated(activated > 0
-        ? `Activated priority for ${activated} ${activated === 1 ? "target" : "targets"}.${already_active ? ` ${already_active_names} already had priority and ${already_active === 1 ? "was" : "were"} skipped.` : ""}`
-        : `${already_active_names} already ${already_active === 1 ? "has" : "have"} an active priority.`);
+      const { activated, updated, updated_names, already_active, already_active_names, grant } = res.data;
+      onActivated(outcomeMessage({ activated, updated, updated_names, already_active, already_active_names, grant }));
     } catch (err) {
       setFormError(err.response?.data?.message || "Failed to activate.");
     } finally {
@@ -151,6 +215,8 @@ export default function useEmergencyActivation({ onActivated, onNeedsConfirm }) 
     setFormError("");
     if (!hasSelection()) { setFormError(`Please select at least one ${targetType}.`); return; }
     if (!reason.trim()) { setFormError("Please describe the reason for this activation."); return; }
+    const badGrant = grantError();
+    if (badGrant) { setFormError(badGrant); return; }
 
     const skipPreview = (PERSON_TARGET_TYPES.includes(targetType) && selectedUsers.length === 1)
       || (targetType === "guest" && selectedGuestIds.length === 1);
@@ -159,15 +225,28 @@ export default function useEmergencyActivation({ onActivated, onNeedsConfirm }) 
     const gen = requestGen.current;
     setPreviewLoading(true);
     try {
-      const res = await adminApi.post("/admin/emergency/preview", { target_type: targetType, target_id: getTargetId() });
+      // The figures go with it: the same selection is "2 skipped" or "2 updated"
+      // depending on whether what is being offered differs from what they hold.
+      const res = await adminApi.post("/admin/emergency/preview", {
+        target_type: targetType,
+        target_id: getTargetId(),
+        ...grantPayload(),
+      });
       if (requestGen.current !== gen) return; // modal was closed/reset while this was in flight
-      const { count, already_active, already_active_names, target_label } = res.data;
-      if (count === 0) {
-        setFormError(already_active > 0 ? `Already has an active priority: ${already_active_names}.` : "No users match this target.");
+      const { count, updated, updated_names, already_active, already_active_names, target_label } = res.data;
+      if (count === 0 && updated === 0) {
+        setFormError(already_active > 0 ? endsSentence(`Already has this grant: ${already_active_names}`) : "No users match this target.");
         return;
       }
-      const skipNote = already_active > 0 ? ` (${already_active} already active — ${already_active_names} — will be skipped)` : "";
-      onNeedsConfirm({ action: "activate", label: `This will activate emergency priority for ${count} ${count === 1 ? "user" : "users"} — ${target_label}${skipNote}. Continue?` });
+      const skipNote = already_active > 0 ? ` (${already_active} already on these figures — ${already_active_names} — will be left alone)` : "";
+      const updateNote = updated > 0 ? `, and change the existing grant for ${updated_names}` : "";
+      const opening = count > 0
+        ? `This will activate emergency priority for ${count} ${count === 1 ? "user" : "users"} — ${target_label}`
+        : "This will change the existing emergency grant";
+      onNeedsConfirm({
+        action: "activate",
+        label: `${opening}${updateNote}, granting ${grantSummary()}${skipNote}. Continue?`,
+      });
     } catch (err) {
       if (requestGen.current !== gen) return;
       setFormError(err.response?.data?.message || "Failed to preview target.");
@@ -176,11 +255,26 @@ export default function useEmergencyActivation({ onActivated, onNeedsConfirm }) 
     }
   };
 
+  // Says what the figures mean in words, because "+5/10" is not self-evident
+  // and an emergency is the wrong moment to be deciphering a form.
+  const grantSummary = () => {
+    if (extraUp === "" && extraDown === "" && extraData === "") {
+      return "unlimited bandwidth and no data cap";
+    }
+    const parts = [];
+    if (extraUp !== "" || extraDown !== "") {
+      parts.push(`+${extraUp || 0} Mbps up / +${extraDown || 0} Mbps down`);
+    }
+    if (extraData !== "") parts.push(`+${extraData} GB of data`);
+    return `${parts.join(" and ")} on top of each role\u2019s own limits`;
+  };
+
   return {
     activateModal, openModal, closeModal,
     targetType, handleTargetTypeChange, reason, setReason,
     activating, previewLoading, formError,
     handleSubmit, activate, hasSelection,
+    extraUp, setExtraUp, extraDown, setExtraDown, extraData, setExtraData, grantSummary,
 
     userSearch, setUserSearch, userResults, userResultsTotal, selectedUsers, toggleUserSelection,
     catalogFilter, setCatalogFilter, selectedCatalog, toggleCatalogSelection, catalogOptions, catalogMatches,

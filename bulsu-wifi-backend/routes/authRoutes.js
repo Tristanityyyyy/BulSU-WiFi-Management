@@ -13,7 +13,7 @@ const { normalizeIp } = require("../utils/ip");
 // (the `settings` table only ever holds keys that were explicitly saved).
 const { DEFAULT_SESSION_TIMEOUT_MIN, CAPPED_ROLES } = require("../utils/constants");
 const { getAllowance } = require("../utils/allowance");
-const { hasActivePriority } = require("../utils/emergency");
+const { activePriorityGrant, emergencyDataCapGb } = require("../utils/emergency");
 
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
 
@@ -66,9 +66,16 @@ router.post("/login", async (req, res) => {
           "SELECT bytes_used FROM data_usage WHERE user_id=? AND usage_date=CURDATE()",
           [user.id]
         );
-        // An emergency priority waives the cap, so it must waive this gate too —
-        // otherwise the boost would only reach people who hadn't needed it yet.
-        if ((usage?.bytes_used || 0) >= capGb * 1024 ** 3 && !(await hasActivePriority(user.id))) {
+        // An emergency priority lifts the cap, so it must lift this gate by the
+        // same amount — otherwise the boost would only reach people who hadn't
+        // needed it yet. `undefined` means no priority at all; `null` means one
+        // carrying no figures, which waives the cap outright as it always has.
+        const grant = await activePriorityGrant(user.id);
+        const effectiveCapGb =
+          grant === undefined ? capGb : emergencyDataCapGb(capGb, grant);
+        // A granted allocation raises the bar rather than removing it, so someone
+        // who has already burned through role cap *and* grant is still stopped.
+        if (effectiveCapGb !== null && (usage?.bytes_used || 0) >= effectiveCapGb * 1024 ** 3) {
           return res.status(403).json({ message: "Daily data limit reached. Access resumes tomorrow." });
         }
       }

@@ -3,7 +3,7 @@ const { getSettings, getRoleBandwidthMap } = require("../utils/settings");
 const { readQueueState, setQueueLimit, grantAccess, queueMatchesLimits, ENABLED } = require("../utils/routeros");
 const { endSession, endGuestSession } = require("../utils/sessions");
 const { CAPPED_ROLES } = require("../utils/constants");
-const { EMERGENCY_LIMITS, getActivePriorities } = require("../utils/emergency");
+const { emergencyLimitsFor, emergencyDataCapGb, getActivePriorities } = require("../utils/emergency");
 
 const GB = 1024 * 1024 * 1024;
 // Phase 1: pull each active session's Simple Queue byte counter, accrue the
@@ -17,11 +17,14 @@ async function meterActiveQueues(bandwidth, priorities) {
   );
 
   for (const row of rows) {
-    // An active emergency priority replaces the role's entitlement outright.
-    // Because the drift check below re-applies whatever this resolves to, a
-    // priority activated in the admin panel lands on the live queue within one
-    // tick — and lifts again the same way when it is deactivated.
-    const limits = priorities.users.has(row.user_id) ? EMERGENCY_LIMITS : bandwidth[row.role];
+    // An active emergency priority adds to the role's entitlement — or replaces
+    // it with unlimited, when the admin named no figures. Because the drift check
+    // below re-applies whatever this resolves to, a priority activated in the
+    // admin panel lands on the live queue within one tick, and lifts again the
+    // same way when it is deactivated or its figures are changed.
+    const limits = priorities.users.has(row.user_id)
+      ? emergencyLimitsFor(bandwidth[row.role], priorities.users.get(row.user_id))
+      : bandwidth[row.role];
     const state = await readQueueState(row.queue_id);
     if (state === undefined) continue; // router unreachable this cycle — retry next tick
 
@@ -80,10 +83,20 @@ async function enforceDailyCaps(priorities) {
 
   const caps = await getSettings(CAPPED_ROLES.map((r) => `data_cap_gb_${r}`));
   for (const u of overUsers) {
-    // Cutting off the very account an emergency priority was granted to would
-    // defeat the point of granting it, so the cap is waived for the duration.
-    if (priorities.users.has(u.user_id)) continue;
-    const capGb = Number(caps[`data_cap_gb_${u.role}`]);
+    const roleCapGb = Number(caps[`data_cap_gb_${u.role}`]);
+
+    // Cutting off the very account a priority was granted to would defeat the
+    // point of granting it. With an allocation named, that means raising the
+    // ceiling rather than removing it: they are still capped, just higher, so a
+    // grant of 3 GB is 3 GB and not an accidental afternoon of unlimited.
+    // emergencyDataCapGb returns null when there is nothing to hold them to —
+    // a blanket grant, or a role that was uncapped to begin with.
+    let capGb = roleCapGb;
+    if (priorities.users.has(u.user_id)) {
+      capGb = emergencyDataCapGb(roleCapGb, priorities.users.get(u.user_id));
+      if (capGb === null) continue;
+    }
+
     if (!capGb || capGb <= 0) continue; // 0 / unset = unlimited
     if (u.bytes_used < capGb * GB) continue;
 
@@ -116,7 +129,8 @@ async function meterAndCapGuests(roleLimits, priorities) {
 
   for (const row of rows) {
     const prioritised = priorities.guests.has(row.guest_id);
-    const limits = prioritised ? EMERGENCY_LIMITS : roleLimits;
+    const grant = prioritised ? priorities.guests.get(row.guest_id) : undefined;
+    const limits = prioritised ? emergencyLimitsFor(roleLimits, grant) : roleLimits;
     const state = row.queue_id ? await readQueueState(row.queue_id) : null;
     if (state === undefined) continue; // router unreachable this cycle — retry next tick
 
@@ -153,7 +167,12 @@ async function meterAndCapGuests(roleLimits, priorities) {
     );
     if (delta > 0) await db.query("UPDATE guest_sessions SET last_seen=NOW() WHERE id=?", [row.id]);
 
-    const capGb = prioritised ? 0 : Number(row.data_limit_gb);
+    // A prioritised guest gets their voucher allowance plus whatever was granted
+    // — or no ceiling at all when the admin named no figures. 0 is what this loop
+    // reads as unlimited, which is where a waived cap lands.
+    const capGb = prioritised
+      ? emergencyDataCapGb(row.data_limit_gb, grant) ?? 0
+      : Number(row.data_limit_gb);
     if (capGb > 0) {
       // Read the stored total back so the cutoff is based on what's committed
       // rather than the snapshot this tick started with.

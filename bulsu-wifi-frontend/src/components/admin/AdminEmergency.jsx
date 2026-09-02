@@ -62,8 +62,28 @@ export default function AdminEmergency() {
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+  // What a row actually handed out. Rows created before figures existed carry
+  // none, and those granted the blanket boost — so the two read the same, which
+  // is correct: they are the same grant.
+  const describeGrant = (p) => {
+    const up = p.extra_up_mbps == null ? null : Number(p.extra_up_mbps);
+    const down = p.extra_down_mbps == null ? null : Number(p.extra_down_mbps);
+    const data = p.extra_data_gb == null ? null : Number(p.extra_data_gb);
+
+    if (up === null && down === null && data === null) {
+      return <span className="text-gray-500 dark:text-gray-400">Unlimited</span>;
+    }
+    const parts = [];
+    if (up !== null || down !== null) parts.push(`+${up ?? 0}/${down ?? 0} Mbps`);
+    if (data !== null) parts.push(`+${data} GB`);
+    return (
+      <span className="font-medium text-red-700 dark:text-red-300 tabular-nums">{parts.join(" · ")}</span>
+    );
+  };
+
   const columns = [
     { key: "target_label", label: "Target" },
+    "Granted",
     "Reason",
     "Activated By",
     { key: "activated_at", label: "Activated At" },
@@ -78,6 +98,7 @@ export default function AdminEmergency() {
           <span className="ml-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-wine-800 rounded-full px-1.5 py-0.5">{p.user_count}</span>
         )}
       </td>
+      <td className="px-4 py-2 text-xs">{describeGrant(p)}</td>
       <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-sm">{p.reason}</td>
       <td className="px-4 py-2 text-gray-600 dark:text-gray-300 text-xs">{p.activated_by_name}</td>
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{new Date(p.activated_at).toLocaleString()}</td>

@@ -16,6 +16,7 @@ export default function ActivateEmergencyModal({ emergency }) {
     userSearch, setUserSearch, userResults, userResultsTotal, selectedUsers, toggleUserSelection,
     catalogFilter, setCatalogFilter, selectedCatalog, toggleCatalogSelection, catalogOptions, catalogMatches,
     guestFilter, setGuestFilter, selectedGuestIds, toggleGuestSelection, toggleSelectAllGuests, guestOptions, guestMatches,
+    extraUp, setExtraUp, extraDown, setExtraDown, extraData, setExtraData, grantSummary,
   } = emergency;
 
   return (
@@ -97,6 +98,56 @@ export default function ActivateEmergencyModal({ emergency }) {
               totalCount={catalogMatches.length}
             />
           )}
+
+          {/* What the activation hands out. Additive on purpose: one selection
+              usually spans roles on different entitlements — a section holds
+              students and faculty — and an absolute figure would flatten them
+              onto one number, demoting whoever was already better off. */}
+          <div className="rounded-xl border border-red-100 dark:border-red-900/60 bg-red-50/40 dark:bg-red-950/20 p-3">
+            <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">Extra allowance</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 mb-2.5">
+              Added on top of each role’s own limits. Leave blank for unlimited.
+            </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[11px] font-medium text-gray-600 dark:text-gray-300 block mb-1">Upload</label>
+                <div className="relative">
+                  <input type="number" min={0} max={1000} step={0.5} value={extraUp}
+                    onChange={(e) => setExtraUp(e.target.value)}
+                    placeholder="—"
+                    className="w-full border border-slate-200 dark:border-wine-800 rounded-lg pl-2 pr-9 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">Mbps</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-gray-600 dark:text-gray-300 block mb-1">Download</label>
+                <div className="relative">
+                  <input type="number" min={0} max={1000} step={0.5} value={extraDown}
+                    onChange={(e) => setExtraDown(e.target.value)}
+                    placeholder="—"
+                    className="w-full border border-slate-200 dark:border-wine-800 rounded-lg pl-2 pr-9 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">Mbps</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-gray-600 dark:text-gray-300 block mb-1">Data</label>
+                <div className="relative">
+                  <input type="number" min={0} max={500} step={0.5} value={extraData}
+                    onChange={(e) => setExtraData(e.target.value)}
+                    placeholder="—"
+                    className="w-full border border-slate-200 dark:border-wine-800 rounded-lg pl-2 pr-7 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">GB</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Reads the figures back in words. An emergency is the wrong moment
+                to be working out what three numbers in boxes will do. */}
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+              Grants <span className="font-medium text-red-700 dark:text-red-300">{grantSummary()}</span>.
+            </p>
+          </div>
 
           <div>
             <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Reason <span className="text-red-500">*</span></label>
