@@ -77,15 +77,20 @@ async function seed() {
     "INSERT INTO sections (course_id, name, year_level, status) VALUES (?, 'T3', 1, 'inactive')",
     [fixtures.courseId]
   );
+  const [secBlocked] = await db.query(
+    "INSERT INTO sections (course_id, name, year_level, status) VALUES (?, 'T4', 1, 'inactive')",
+    [fixtures.courseId]
+  );
   fixtures.sectionA = secA.insertId;
   fixtures.sectionB = secB.insertId;
   fixtures.sectionEmpty = secEmpty.insertId;
+  fixtures.sectionBlocked = secBlocked.insertId;
 
-  const make = async (label, { number, name, role, sectionId = null, trashed = false }) => {
+  const make = async (label, { number, name, role, sectionId = null, trashed = false, blocked = false }) => {
     const [row] = await db.query(
       `INSERT INTO users (student_number, full_name, birth_date, password_hash, course_id, section_id,
                           enrollment_status, role, status, deleted_at, must_change_password)
-       VALUES (?,?,'2000-01-01','x',?,?,?,?,'active',?,0)`,
+       VALUES (?,?,'2000-01-01','x',?,?,?,?,?,?,0)`,
       [
         number,
         name,
@@ -93,6 +98,7 @@ async function seed() {
         role === "student" ? sectionId : null,
         role === "student" ? "enrolled" : null,
         role,
+        blocked ? "blocked" : "active",
         trashed ? new Date() : null,
       ]
     );
@@ -104,6 +110,10 @@ async function seed() {
   await make("carol", { number: "9900000003", name: "Test, Carol", role: "student", sectionId: fixtures.sectionB });
   await make("frank", { number: "9900000004", name: "Test, Frank the faculty", role: "faculty" });
   await make("trashed", { number: "9900000005", name: "Test, Trashed", role: "student", sectionId: fixtures.sectionA, trashed: true });
+  await make("blocked", { number: "9900000006", name: "Test, Blocked", role: "student", sectionId: fixtures.sectionA, blocked: true });
+  // A section where nobody is reachable is a different problem from an empty
+  // one, and gets a different answer.
+  await make("shutOut", { number: "9900000007", name: "Test, Shut Out", role: "student", sectionId: fixtures.sectionBlocked, blocked: true });
 
   const [[admin]] = await db.query("SELECT id, role FROM users WHERE role = 'admin' AND deleted_at IS NULL LIMIT 1");
   if (!admin) throw new Error("No admin account in the database to send as.");
@@ -115,13 +125,13 @@ async function cleanup() {
   await db.query("DELETE FROM audit_logs WHERE id > ?", [auditWatermark]);
   const ids = Object.values(fixtures.users).map((u) => u.id);
   if (ids.length) await db.query("DELETE FROM users WHERE id IN (?)", [ids]);
-  const sections = [fixtures.sectionA, fixtures.sectionB, fixtures.sectionEmpty].filter(Boolean);
+  const sections = [fixtures.sectionA, fixtures.sectionB, fixtures.sectionEmpty, fixtures.sectionBlocked].filter(Boolean);
   if (sections.length) await db.query("DELETE FROM sections WHERE id IN (?)", [sections]);
   if (fixtures.courseId) await db.query("DELETE FROM courses WHERE id = ?", [fixtures.courseId]);
 }
 
 async function run() {
-  const { alice, bob, carol, frank, trashed } = fixtures.users;
+  const { alice, bob, carol, frank, trashed, blocked } = fixtures.users;
   const adminToken = tokenFor(fixtures.admin);
   const send = (body) => call("POST", "/api/admin/notifications/send", { token: adminToken, body });
 
@@ -146,6 +156,14 @@ async function run() {
   const toTrashed = await send({ target: "user", user_id: trashed.id, message: "TEST-TRASHED: undeliverable." });
   check("trashed recipient rejected with 4xx", toTrashed.status >= 400 && toTrashed.status < 500, `HTTP ${toTrashed.status} ${JSON.stringify(toTrashed.data)}`);
 
+  console.log("\n3b. A message addressed to a blocked account is refused");
+  const toBlocked = await send({ target: "user", user_id: blocked.id, message: "TEST-BLOCKED: cannot log in to read this." });
+  check("blocked recipient rejected with 4xx", toBlocked.status >= 400 && toBlocked.status < 500, `HTTP ${toBlocked.status} ${JSON.stringify(toBlocked.data)}`);
+  const [[{ blockedFiled }]] = await db.query(
+    "SELECT COUNT(*) AS blockedFiled FROM notifications WHERE user_id = ?", [blocked.id]
+  );
+  check("nothing was filed for the blocked account", Number(blockedFiled) === 0, `${blockedFiled} row(s)`);
+
   console.log("\n4. A message to a section reaches that section, and stops there");
   const sectionMsg = "TEST-SECTION: for section T1.";
   const toSection = await send({ target: "section", course_id: fixtures.courseId, section_id: fixtures.sectionA, message: sectionMsg });
@@ -157,10 +175,18 @@ async function run() {
     "SELECT COUNT(*) AS toTrash FROM notifications WHERE user_id = ? AND message = ?", [trashed.id, sectionMsg]
   );
   check("the trashed T1 account was skipped", Number(toTrash) === 0, `${toTrash} row(s)`);
+  const [[{ toBlockedMember }]] = await db.query(
+    "SELECT COUNT(*) AS toBlockedMember FROM notifications WHERE user_id = ? AND message = ?", [blocked.id, sectionMsg]
+  );
+  check("the blocked T1 account was skipped", Number(toBlockedMember) === 0, `${toBlockedMember} row(s)`);
 
-  console.log("\n5. A section with nobody in it is reported, not called a success");
+  console.log("\n5. A section with nobody reachable in it is reported, not called a success");
   const empty = await send({ target: "section", course_id: fixtures.courseId, section_id: fixtures.sectionEmpty, message: "TEST-EMPTY: nobody here." });
   check("empty section rejected with 4xx", empty.status >= 400 && empty.status < 500, `HTTP ${empty.status} ${JSON.stringify(empty.data)}`);
+  const allBlocked = await send({ target: "section", course_id: fixtures.courseId, section_id: fixtures.sectionBlocked, message: "TEST-SHUTOUT: everyone here is blocked." });
+  check("all-blocked section rejected with 4xx", allBlocked.status >= 400 && allBlocked.status < 500, `HTTP ${allBlocked.status} ${JSON.stringify(allBlocked.data)}`);
+  check("and says why, rather than claiming the section is empty",
+    /blocked/i.test(allBlocked.data?.message || ""), JSON.stringify(allBlocked.data?.message));
 
   console.log('\n6. "Everyone" means everyone who can log in');
   const everyone = "TEST-ALL: campus-wide notice.";
@@ -172,6 +198,10 @@ async function run() {
     "SELECT COUNT(*) AS trashedGot FROM notifications WHERE user_id = ? AND message = ?", [trashed.id, everyone]
   );
   check("a trashed account was skipped", Number(trashedGot) === 0, `${trashedGot} row(s)`);
+  const [[{ blockedGot }]] = await db.query(
+    "SELECT COUNT(*) AS blockedGot FROM notifications WHERE user_id = ? AND message = ?", [blocked.id, everyone]
+  );
+  check("a blocked account was skipped", Number(blockedGot) === 0, `${blockedGot} row(s)`);
   const [[{ reported }]] = await db.query(
     "SELECT COUNT(*) AS reported FROM notifications WHERE message = ?", [everyone]
   );

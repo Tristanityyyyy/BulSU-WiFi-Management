@@ -39,21 +39,31 @@ router.get('/', async (req, res) => {
 // A notification is only worth anything if it reaches a person, so an address
 // that cannot resolve to one is an error the admin has to see — not a row
 // quietly filed against an id nobody holds, and not a "sent successfully" toast
-// for zero recipients. Trashed accounts are excluded everywhere: they cannot
-// log in to read anything, and the purge sweeper will null out their rows.
+// for zero recipients.
+//
+// An account that cannot log in cannot read anything sent to it, so neither
+// kind is ever a recipient. Trash is a one-way trip to deletion, and the purge
+// sweeper will null the row out; a block is reversible, but while it lasts the
+// login is refused outright, so the message would sit unread behind a door the
+// account cannot open. Both are worth saying out loud rather than skipping
+// silently — each has an admin action that fixes it.
+const CAN_RECEIVE = "deleted_at IS NULL AND status <> 'blocked'";
+
 async function resolveRecipients({ target, user_id, course_id, section_id }) {
   if (target === 'user') {
     const id = Number(user_id);
     if (!Number.isInteger(id) || id <= 0)
       return { error: { status: 400, message: 'Choose who this message is for.' } };
     const [[user]] = await db.query(
-      'SELECT id, full_name, student_number, deleted_at FROM users WHERE id = ?',
+      'SELECT id, full_name, student_number, status, deleted_at FROM users WHERE id = ?',
       [id]
     );
     if (!user)
       return { error: { status: 404, message: 'That account does not exist, so the message was not sent.' } };
     if (user.deleted_at)
       return { error: { status: 409, message: `${user.full_name} is in the trash and cannot receive messages. Restore the account first.` } };
+    if (user.status === 'blocked')
+      return { error: { status: 409, message: `${user.full_name} is blocked and cannot log in to read messages. Unblock the account first.` } };
     return { userIds: [user.id], targetName: `${user.full_name} (${user.student_number})` };
   }
 
@@ -72,11 +82,21 @@ async function resolveRecipients({ target, user_id, course_id, section_id }) {
       return { error: { status: 404, message: 'That section does not exist under that course.' } };
     const label = `${section.course_code || ''} ${section.section_name || ''}`.trim() || 'that section';
     const [rows] = await db.query(
-      'SELECT id FROM users WHERE course_id = ? AND section_id = ? AND deleted_at IS NULL',
+      `SELECT id FROM users WHERE course_id = ? AND section_id = ? AND ${CAN_RECEIVE}`,
       [courseId, sectionId]
     );
-    if (!rows.length)
-      return { error: { status: 404, message: `No one is enrolled in ${label}, so the message was not sent.` } };
+    if (!rows.length) {
+      // An empty section and a section whose every member is blocked or trashed
+      // are different problems with different fixes, so they don't share a
+      // message.
+      const [[{ enrolled }]] = await db.query(
+        'SELECT COUNT(*) AS enrolled FROM users WHERE course_id = ? AND section_id = ?',
+        [courseId, sectionId]
+      );
+      return { error: { status: 404, message: enrolled
+        ? `Every account in ${label} is blocked or in the trash, so the message was not sent.`
+        : `No one is enrolled in ${label}, so the message was not sent.` } };
+    }
     return { userIds: rows.map((r) => r.id), targetName: label };
   }
 
@@ -86,10 +106,10 @@ async function resolveRecipients({ target, user_id, course_id, section_id }) {
     // every non-student account. Admins are left out: the compose form is
     // theirs, and they have no user-facing inbox to read it in.
     const [rows] = await db.query(
-      "SELECT id FROM users WHERE deleted_at IS NULL AND role <> 'admin'"
+      `SELECT id FROM users WHERE role <> 'admin' AND ${CAN_RECEIVE}`
     );
     if (!rows.length)
-      return { error: { status: 404, message: 'There are no accounts to send to.' } };
+      return { error: { status: 404, message: 'There are no accounts able to receive a message.' } };
     return { userIds: rows.map((r) => r.id), targetName: 'Everyone' };
   }
 

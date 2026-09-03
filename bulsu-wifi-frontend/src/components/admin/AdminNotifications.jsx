@@ -231,15 +231,27 @@ export default function AdminNotifications() {
                           <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">Searching…</p>
                         ) : recipientResults.length === 0 ? (
                           <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No account matches that name or number.</p>
-                        ) : recipientResults.map((user) => (
-                          <button type="button" key={user.id}
-                            onClick={() => { setForm({ ...form, recipient: user }); clearRecipient(); }}
-                            className="w-full text-left px-3 py-2 text-xs hover:bg-pink-50 dark:hover:bg-pink-950/30 transition">
-                            <span className="text-gray-800 dark:text-gray-100">{user.full_name}</span>
-                            <span className="text-gray-400 dark:text-gray-500 font-mono ml-1.5">{user.student_number}</span>
-                            <span className="text-gray-400 dark:text-gray-500 ml-1.5">· {user.role}</span>
-                          </button>
-                        ))}
+                        ) : recipientResults.map((user) => {
+                          // A blocked account is shown rather than hidden: it is
+                          // found by the name the admin typed, so dropping it
+                          // would read as "no such person" when the truth is
+                          // "that person cannot be reached until you unblock
+                          // them" — which is something they can act on.
+                          const blocked = user.status === "blocked";
+                          return (
+                            <button type="button" key={user.id} disabled={blocked}
+                              title={blocked ? "Blocked accounts cannot log in to read messages." : undefined}
+                              onClick={() => { setForm({ ...form, recipient: user }); clearRecipient(); }}
+                              className="w-full text-left px-3 py-2 text-xs transition enabled:hover:bg-pink-50 dark:enabled:hover:bg-pink-950/30 disabled:opacity-60 disabled:cursor-not-allowed">
+                              <span className={blocked ? "text-gray-500 dark:text-gray-400" : "text-gray-800 dark:text-gray-100"}>{user.full_name}</span>
+                              <span className="text-gray-400 dark:text-gray-500 font-mono ml-1.5">{user.student_number}</span>
+                              <span className="text-gray-400 dark:text-gray-500 ml-1.5">· {user.role}</span>
+                              {blocked && (
+                                <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">Blocked</span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                     {recipientResultsFor === recipientSearch.trim() && recipientTotal > recipientResults.length && (
