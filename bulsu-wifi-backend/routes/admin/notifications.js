@@ -3,20 +3,29 @@ const db = require('../../db');
 const { logAudit, ACTIONS } = require('../../utils/auditLog');
 
 // GET /api/admin/notifications
+//
+// The recipient is joined in rather than listed as a bare user_id: an admin
+// checking that a message reached the right person needs a name, and a raw
+// database id is not one. A purged account leaves the FK null, so the row
+// survives with no recipient — those read as "deleted account", not as blank.
 router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 20, type = '', is_read = '' } = req.query;
     const offset = (page - 1) * limit;
     const params = [];
     let where = 'WHERE 1=1';
-    if (type)     { where += ' AND type = ?'; params.push(type); }
-    if (is_read !== '') { where += ' AND is_read = ?'; params.push(Number(is_read)); }
+    if (type)     { where += ' AND n.type = ?'; params.push(type); }
+    if (is_read !== '') { where += ' AND n.is_read = ?'; params.push(Number(is_read)); }
     const [notifications] = await db.query(
-      `SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      `SELECT n.id, n.user_id, n.session_id, n.type, n.message, n.is_read, n.created_at,
+              u.full_name AS recipient_name, u.student_number AS recipient_number
+         FROM notifications n
+         LEFT JOIN users u ON u.id = n.user_id
+         ${where} ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`,
       [...params, Number(limit), Number(offset)]
     );
     const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM notifications ${where}`, params
+      `SELECT COUNT(*) AS total FROM notifications n ${where}`, params
     );
     res.json({ notifications, total });
   } catch (err) {
@@ -24,54 +33,94 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Work out who a compose request is actually addressed to, and refuse the send
+// outright if that turns out to be nobody.
+//
+// A notification is only worth anything if it reaches a person, so an address
+// that cannot resolve to one is an error the admin has to see — not a row
+// quietly filed against an id nobody holds, and not a "sent successfully" toast
+// for zero recipients. Trashed accounts are excluded everywhere: they cannot
+// log in to read anything, and the purge sweeper will null out their rows.
+async function resolveRecipients({ target, user_id, course_id, section_id }) {
+  if (target === 'user') {
+    const id = Number(user_id);
+    if (!Number.isInteger(id) || id <= 0)
+      return { error: { status: 400, message: 'Choose who this message is for.' } };
+    const [[user]] = await db.query(
+      'SELECT id, full_name, student_number, deleted_at FROM users WHERE id = ?',
+      [id]
+    );
+    if (!user)
+      return { error: { status: 404, message: 'That account does not exist, so the message was not sent.' } };
+    if (user.deleted_at)
+      return { error: { status: 409, message: `${user.full_name} is in the trash and cannot receive messages. Restore the account first.` } };
+    return { userIds: [user.id], targetName: `${user.full_name} (${user.student_number})` };
+  }
+
+  if (target === 'section') {
+    const courseId = Number(course_id);
+    const sectionId = Number(section_id);
+    if (!courseId || !sectionId)
+      return { error: { status: 400, message: 'Choose a course and a section.' } };
+    const [[section]] = await db.query(
+      `SELECT sec.name AS section_name, c.code AS course_code
+         FROM sections sec LEFT JOIN courses c ON c.id = sec.course_id
+        WHERE sec.id = ? AND sec.course_id = ?`,
+      [sectionId, courseId]
+    );
+    if (!section)
+      return { error: { status: 404, message: 'That section does not exist under that course.' } };
+    const label = `${section.course_code || ''} ${section.section_name || ''}`.trim() || 'that section';
+    const [rows] = await db.query(
+      'SELECT id FROM users WHERE course_id = ? AND section_id = ? AND deleted_at IS NULL',
+      [courseId, sectionId]
+    );
+    if (!rows.length)
+      return { error: { status: 404, message: `No one is enrolled in ${label}, so the message was not sent.` } };
+    return { userIds: rows.map((r) => r.id), targetName: label };
+  }
+
+  if (target === 'all') {
+    // "Everyone" is everyone who uses the network — faculty and staff included.
+    // Restricting this to students meant a campus-wide notice silently skipped
+    // every non-student account. Admins are left out: the compose form is
+    // theirs, and they have no user-facing inbox to read it in.
+    const [rows] = await db.query(
+      "SELECT id FROM users WHERE deleted_at IS NULL AND role <> 'admin'"
+    );
+    if (!rows.length)
+      return { error: { status: 404, message: 'There are no accounts to send to.' } };
+    return { userIds: rows.map((r) => r.id), targetName: 'Everyone' };
+  }
+
+  return { error: { status: 400, message: 'target must be one of: user, section, all.' } };
+}
+
 // POST /api/admin/notifications/send
 router.post('/send', async (req, res) => {
   try {
-    const { target, user_id, course_id, section_id, message } = req.body;
+    const { target, user_id, course_id, section_id } = req.body;
+    const message = String(req.body.message ?? '').trim();
     if (!target || !message)
       return res.status(400).json({ message: 'target and message are required.' });
-    let userIds = [];
-    if (target === 'user') {
-      if (!user_id) return res.status(400).json({ message: 'user_id is required for target "user".' });
-      userIds = [user_id];
-    } else if (target === 'section') {
-      const normalizedCourseId = Number(course_id);
-      const normalizedSectionId = Number(section_id);
-      if (!normalizedCourseId || !normalizedSectionId) {
-        return res.status(400).json({ message: 'course and section are required for target "section".' });
-      }
-      const [rows] = await db.query('SELECT id FROM users WHERE course_id = ? AND section_id = ?', [normalizedCourseId, normalizedSectionId]);
-      userIds = rows.map((r) => r.id);
-    } else {
-      const [rows] = await db.query('SELECT id FROM users WHERE role = "student"');
-      userIds = rows.map((r) => r.id);
-    }
-    const values = userIds.map((id) => [id, 'general', message, 0, new Date()]);
-    if (values.length) {
-      await db.query('INSERT INTO notifications (user_id, type, message, is_read, created_at) VALUES ?', [values]);
 
-      let targetName = 'All Students';
-      if (target === 'user') {
-        const [[u]] = await db.query('SELECT full_name FROM users WHERE id = ?', [user_id]);
-        targetName = u?.full_name || 'Unknown user';
-      } else if (target === 'section') {
-        const [[s]] = await db.query(
-          `SELECT sec.name AS section_name, c.code AS course_code
-           FROM sections sec LEFT JOIN courses c ON c.id = sec.course_id WHERE sec.id = ?`,
-          [section_id]
-        );
-        targetName = s ? `${s.course_code || ''} ${s.section_name || ''}`.trim() : 'Unknown section';
-      }
+    const { userIds, targetName, error } = await resolveRecipients({ target, user_id, course_id, section_id });
+    if (error) return res.status(error.status).json({ message: error.message });
 
-      await logAudit(req, {
-        action: ACTIONS.CREATED,
-        target_type: target,
-        target_name: targetName,
-        description: `Sent notification to ${targetName} (${values.length} recipient(s))`,
-        metadata: { target, course_id, message },
-      });
-    }
-    res.json({ sent: values.length });
+    await db.query(
+      'INSERT INTO notifications (user_id, type, message, is_read, created_at) VALUES ?',
+      [userIds.map((id) => [id, 'general', message, 0, new Date()])]
+    );
+
+    await logAudit(req, {
+      action: ACTIONS.CREATED,
+      target_type: target,
+      target_name: targetName,
+      description: `Sent notification to ${targetName} (${userIds.length} recipient(s))`,
+      metadata: { target, course_id, section_id, message },
+    });
+
+    res.json({ sent: userIds.length, target_name: targetName });
   } catch (err) {
     res.status(500).json({ message: 'Failed to send notifications.' });
   }

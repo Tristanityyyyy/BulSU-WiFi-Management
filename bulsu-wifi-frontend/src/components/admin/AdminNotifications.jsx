@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { Send } from "lucide-react";
+import { Send, X } from "lucide-react";
 import adminApi from "./adminApi";
 import AdminTable from "./AdminTable";
 import Modal from "../ui/Modal";
 import Toast from "../ui/Toast";
 
 const PAGE_SIZE = 20;
+const RECIPIENT_RESULT_LIMIT = 8;
+const EMPTY_FORM = { target: "user", recipient: null, course_id: "", section_id: "", message: "" };
 
 export default function AdminNotifications() {
   const [rows, setRows] = useState([]);
@@ -15,11 +17,23 @@ export default function AdminNotifications() {
   const [filterType, setFilterType] = useState("");
   const [filterRead, setFilterRead] = useState("");
   const [compose, setCompose] = useState(false);
-  const [form, setForm] = useState({ target: "user", user_id: "", course_id: "", section_id: "", message: "" });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
-  const [sendSuccess, setSendSuccess] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState("");
   const [catalog, setCatalog] = useState({ courses: [], sections: [] });
+  // Recipient lookup for "Specific User". Composing used to mean typing a raw
+  // database id into a blank box: an id nobody holds was a failed send, and an
+  // id somebody else holds was a message delivered to the wrong person with
+  // nothing on screen to reveal it. Searching by name or student number and
+  // picking from the results is the only way the admin can see who they are
+  // actually addressing before pressing Send.
+  const [recipientSearch, setRecipientSearch] = useState("");
+  const [recipientResults, setRecipientResults] = useState([]);
+  const [recipientTotal, setRecipientTotal] = useState(0);
+  // Which query the results on screen belong to, so a list left over from an
+  // earlier search is never offered as an answer to the current one.
+  const [recipientResultsFor, setRecipientResultsFor] = useState("");
 
   const fetchNotifications = async (p = page) => {
     setLoading(true);
@@ -40,10 +54,41 @@ export default function AdminNotifications() {
     adminApi.get("/admin/settings/catalog").then((res) => setCatalog(res.data || { courses: [], sections: [] }));
   }, []);
 
+  useEffect(() => {
+    const query = form.target === "user" ? recipientSearch.trim() : "";
+    if (!query) return;
+    // A slower response for an earlier query must not overwrite the list the
+    // admin is looking at — landing out of order here would put someone else's
+    // name under the pointer at the moment of clicking.
+    let cancelled = false;
+    adminApi.get("/admin/users", { params: { search: query, limit: RECIPIENT_RESULT_LIMIT } })
+      .then((res) => {
+        if (cancelled) return;
+        setRecipientResults(res.data.users);
+        setRecipientTotal(res.data.total ?? res.data.users.length);
+        setRecipientResultsFor(query);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRecipientResults([]);
+        setRecipientTotal(0);
+        setRecipientResultsFor(query);
+      });
+    return () => { cancelled = true; };
+  }, [recipientSearch, form.target]);
+
+  const clearRecipient = () => {
+    setRecipientSearch("");
+    setRecipientResults([]);
+    setRecipientTotal(0);
+    setRecipientResultsFor("");
+  };
+
   const closeCompose = () => {
     setCompose(false);
     setSendError("");
     setSending(false);
+    clearRecipient();
   };
 
   const handleSend = async (e) => {
@@ -51,11 +96,21 @@ export default function AdminNotifications() {
     setSendError("");
     setSending(true);
     try {
-      await adminApi.post("/admin/notifications/send", form);
-      setSendSuccess(true);
+      const res = await adminApi.post("/admin/notifications/send", {
+        target: form.target,
+        user_id: form.recipient?.id,
+        course_id: form.course_id,
+        section_id: form.section_id,
+        message: form.message,
+      });
+      // Name who it reached, not just that something happened — a send is only
+      // worth confirming if the confirmation says who received it.
+      const { sent, target_name: targetName } = res.data || {};
+      setSendSuccess(`Sent to ${targetName || "the selected recipients"} (${sent} recipient${sent === 1 ? "" : "s"}).`);
       setCompose(false);
       setSending(false);
-      setForm({ target: "user", user_id: "", course_id: "", section_id: "", message: "" });
+      setForm(EMPTY_FORM);
+      clearRecipient();
       fetchNotifications(1);
     } catch (err) {
       setSendError(err.response?.data?.message || "Failed to send.");
@@ -64,11 +119,20 @@ export default function AdminNotifications() {
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const columns = ["User ID", "Type", "Message", "Sent At", "Status"];
+  const columns = ["Recipient", "Type", "Message", "Sent At", "Status"];
   const sectionOptions = (catalog.sections || []).filter((section) => String(section.course_id) === String(form.course_id));
   const tableRows = rows.map((n) => (
     <>
-      <td className="px-4 py-2 text-gray-700 dark:text-gray-300 text-xs font-mono">{n.user_id ?? "—"}</td>
+      <td className="px-4 py-2 text-xs">
+        {n.recipient_name ? (
+          <>
+            <span className="text-gray-700 dark:text-gray-300">{n.recipient_name}</span>
+            <span className="block text-gray-400 dark:text-gray-500 font-mono">{n.recipient_number}</span>
+          </>
+        ) : (
+          <span className="text-gray-400 dark:text-gray-500 italic">Deleted account</span>
+        )}
+      </td>
       <td className="px-4 py-2">
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${typeStyle(n.type)}`}>{typeLabel(n.type)}</span>
       </td>
@@ -143,10 +207,48 @@ export default function AdminNotifications() {
             </div>
             {form.target === "user" && (
               <div>
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">User ID</label>
-                <input value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })}
-                  className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
-                  required />
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-300 block mb-1">Recipient</label>
+                {form.recipient ? (
+                  <div className="flex items-center justify-between gap-2 border border-pink-200 dark:border-pink-900 bg-pink-50 dark:bg-pink-950/30 rounded-xl px-3 py-2">
+                    <span className="text-sm text-pink-800 dark:text-pink-200 truncate">
+                      {form.recipient.full_name}
+                      <span className="text-pink-500 dark:text-pink-400 font-mono text-xs ml-1.5">{form.recipient.student_number}</span>
+                    </span>
+                    <button type="button" onClick={() => { setForm({ ...form, recipient: null }); clearRecipient(); }}
+                      aria-label={`Remove ${form.recipient.full_name}`}
+                      className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-pink-600 dark:text-pink-300 hover:bg-pink-100 dark:hover:bg-pink-900/50 transition">
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input value={recipientSearch} onChange={(e) => setRecipientSearch(e.target.value)}
+                      placeholder="Search by name or student number…"
+                      className="w-full border border-slate-200 dark:border-wine-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition" />
+                    {recipientSearch.trim() && (
+                      <div className="mt-2 border border-pink-100 dark:border-pink-900/60 rounded-xl divide-y divide-pink-50 dark:divide-wine-800/70 max-h-40 overflow-y-auto">
+                        {recipientResultsFor !== recipientSearch.trim() ? (
+                          <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">Searching…</p>
+                        ) : recipientResults.length === 0 ? (
+                          <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No account matches that name or number.</p>
+                        ) : recipientResults.map((user) => (
+                          <button type="button" key={user.id}
+                            onClick={() => { setForm({ ...form, recipient: user }); clearRecipient(); }}
+                            className="w-full text-left px-3 py-2 text-xs hover:bg-pink-50 dark:hover:bg-pink-950/30 transition">
+                            <span className="text-gray-800 dark:text-gray-100">{user.full_name}</span>
+                            <span className="text-gray-400 dark:text-gray-500 font-mono ml-1.5">{user.student_number}</span>
+                            <span className="text-gray-400 dark:text-gray-500 ml-1.5">· {user.role}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {recipientResultsFor === recipientSearch.trim() && recipientTotal > recipientResults.length && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                        Showing {recipientResults.length} of {recipientTotal} — keep typing to narrow this down.
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             )}
             {form.target === "section" && (
@@ -185,7 +287,7 @@ export default function AdminNotifications() {
             <div className="flex gap-3 pt-1">
               <button type="button" onClick={closeCompose}
                 className="flex-1 border border-slate-200 dark:border-wine-800 text-gray-600 dark:text-gray-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-wine-800/40 transition">Cancel</button>
-              <button type="submit" disabled={sending}
+              <button type="submit" disabled={sending || (form.target === "user" && !form.recipient)}
                 className="flex-1 inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl py-2.5 text-sm font-semibold shadow-md shadow-pink-200 dark:shadow-none disabled:opacity-60 transition">
                 <Send size={13} />
                 {sending ? "Sending…" : "Send"}
@@ -195,7 +297,7 @@ export default function AdminNotifications() {
         </Modal>
       )}
 
-      {sendSuccess && <Toast message="Notification sent successfully." onDismiss={() => setSendSuccess(false)} />}
+      {sendSuccess && <Toast message={sendSuccess} onDismiss={() => setSendSuccess("")} />}
     </div>
   );
 }
