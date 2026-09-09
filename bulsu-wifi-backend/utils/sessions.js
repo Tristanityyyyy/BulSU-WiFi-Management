@@ -20,10 +20,26 @@ async function endSession(sessionId, { reason, status = 'ended' } = {}) {
     [status, reason, sessionId]
   );
 
+  // The active_queues row is deleted only when the router actually let go of the
+  // grant. Deleting it regardless left a live queue on the device with nothing
+  // in the database still pointing at it — unreachable by the meter, by the next
+  // logout, and by revokeAccess, so it sat there shaping traffic until the orphan
+  // reaper happened to notice it.
+  //
+  // That is not merely untidy: RouterOS matches simple queues top-down, so a
+  // stranded queue on an address still carrying the old role limits shadows the
+  // fresh one created at the next login — including one built with an emergency
+  // grant folded in. It is one of the ways a granted boost can be applied
+  // correctly everywhere and still not reach anybody.
+  //
+  // Keeping the row simply stops the database claiming the queue is gone while it
+  // is still up, which is the contract revokeAccess documents and the one the
+  // guest path (endGuestSession, below) has always honoured. The orphan sweeper
+  // removes the queue itself and then clears the row.
   const [[queue]] = await db.query('SELECT queue_id FROM active_queues WHERE session_id=?', [sessionId]);
   if (queue) {
-    await revokeAccess(session.ip_address, queue.queue_id);
-    await db.query('DELETE FROM active_queues WHERE session_id=?', [sessionId]);
+    const revoked = await revokeAccess(session.ip_address, queue.queue_id);
+    if (revoked) await db.query('DELETE FROM active_queues WHERE session_id=?', [sessionId]);
   }
 
   return session;
@@ -55,10 +71,6 @@ async function forceDisconnectSession(req, sessionId) {
 // live queue/ip-binding on the device with nothing left to revoke it by. The
 // caller either retries (the guest expiry sweeper does, automatically) or tells
 // the admin it didn't take.
-//
-// TODO: the student-side endSession above has the same hole — it deletes the
-// active_queues row even when revokeAccess failed. Left as-is here to keep this
-// change scoped to the guest path; worth fixing the same way.
 async function endGuestSession(guestSessionId, { status = 'ended' } = {}) {
   const [[session]] = await db.query(
     `SELECT id, guest_name, ip_address, queue_id FROM guest_sessions WHERE id=? AND status='active'`,

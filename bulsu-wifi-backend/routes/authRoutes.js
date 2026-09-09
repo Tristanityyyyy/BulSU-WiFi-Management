@@ -13,7 +13,7 @@ const { normalizeIp } = require("../utils/ip");
 // (the `settings` table only ever holds keys that were explicitly saved).
 const { DEFAULT_SESSION_TIMEOUT_MIN, CAPPED_ROLES } = require("../utils/constants");
 const { getAllowance } = require("../utils/allowance");
-const { activePriorityGrant, emergencyDataCapGb } = require("../utils/emergency");
+const { activePriorityGrant, emergencyDataCapGb, emergencyLimitsFor } = require("../utils/emergency");
 
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
 
@@ -54,25 +54,36 @@ router.post("/login", async (req, res) => {
       return res.status(403).json({ message: "Your enrollment is not active. Contact the registrar." });
     }
 
+    // Read once, three uses: the cap gate immediately below, the figure quoted
+    // back to the welcome screen, and the queue this login creates further down.
+    // It used to be fetched inside the gate, which meant the two halves of a
+    // single login disagreed — the cap honoured the grant while the queue was
+    // still built at plain role speed, so someone holding an emergency priority
+    // connected unboosted and stayed that way until the meter's next tick.
+    //
+    // `undefined` means no priority at all; `null` means one carrying no
+    // figures, which waives the cap outright as it always has.
+    const grant = CAPPED_ROLES.includes(user.role)
+      ? await activePriorityGrant(user.id)
+      : undefined;
+
     // Daily data-cap check: without this, an account already cut off by the
     // usage meter could just log back in immediately and get a fresh MikroTik
     // grant before the next sweep notices. A cap of 0/unset means unlimited.
-    let capGb = 0; // 0 = unlimited; also reported back to the first-login welcome screen
+    let capGb = 0; // 0 = unlimited; the role's own figure, before any grant
+    let effectiveCapGb = 0; // what this account is actually held to today; null = no cutoff
     if (CAPPED_ROLES.includes(user.role)) {
       const capSettings = await getSettings([`data_cap_gb_${user.role}`]);
       capGb = Number(capSettings[`data_cap_gb_${user.role}`]) || 0;
+      // An emergency priority lifts the cap, so it must lift this gate by the
+      // same amount — otherwise the boost would only reach people who hadn't
+      // needed it yet.
+      effectiveCapGb = grant === undefined ? capGb : emergencyDataCapGb(capGb, grant);
       if (capGb > 0) {
         const [[usage]] = await db.query(
           "SELECT bytes_used FROM data_usage WHERE user_id=? AND usage_date=CURDATE()",
           [user.id]
         );
-        // An emergency priority lifts the cap, so it must lift this gate by the
-        // same amount — otherwise the boost would only reach people who hadn't
-        // needed it yet. `undefined` means no priority at all; `null` means one
-        // carrying no figures, which waives the cap outright as it always has.
-        const grant = await activePriorityGrant(user.id);
-        const effectiveCapGb =
-          grant === undefined ? capGb : emergencyDataCapGb(capGb, grant);
         // A granted allocation raises the bar rather than removing it, so someone
         // who has already burned through role cap *and* grant is still stopped.
         if (effectiveCapGb !== null && (usage?.bytes_used || 0) >= effectiveCapGb * 1024 ** 3) {
@@ -147,7 +158,13 @@ router.post("/login", async (req, res) => {
 
     let deviceMac = null;
     if (CAPPED_ROLES.includes(user.role)) {
-      const limits = await getRoleBandwidth(user.role);
+      // The queue is built with the grant already folded in, so a prioritised
+      // user is boosted from their first packet. Leaving it at the role's own
+      // figure meant they connected at ordinary speed and priority 8, and only
+      // moved when the meter next reconciled — up to two minutes of an emergency
+      // spent at exactly the limits the emergency was declared to lift.
+      const roleLimits = await getRoleBandwidth(user.role);
+      const limits = grant === undefined ? roleLimits : emergencyLimitsFor(roleLimits, grant);
       const granted = await grantAccess(clientIp, session.insertId, "session", limits);
       if (granted) {
         await db.query(
@@ -183,7 +200,10 @@ router.post("/login", async (req, res) => {
       policy: {
         sessionMinutes: timeoutMinutes,
         maxDevices,
-        dataCapGb: capGb > 0 ? capGb : null, // null = unlimited
+        // The grant is part of "this account's real limits" for as long as it is
+        // active, so the welcome screen quotes what is actually being enforced
+        // rather than the role figure the emergency has already superseded.
+        dataCapGb: effectiveCapGb > 0 ? effectiveCapGb : null, // null = unlimited
       },
     });
   } catch (err) {

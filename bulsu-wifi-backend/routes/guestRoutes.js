@@ -7,6 +7,11 @@ const { normalizeIp } = require("../utils/ip");
 const { callerAddress, findSessionForCaller } = require("../utils/device");
 const { getRoleBandwidth } = require("../utils/settings");
 const { isGuestCodeShaped, normalizeGuestCode } = require("../utils/guestCode");
+const {
+  activeGuestPriorityGrant,
+  emergencyDataCapGb,
+  emergencyLimitsFor,
+} = require("../utils/emergency");
 
 // A guest pass is a voucher code and nothing else. It used to also carry a long
 // token for a QR code to encode; that route is gone, and with it the only
@@ -22,6 +27,33 @@ async function findGuestByVoucher(voucher, columns) {
     [normalizeGuestCode(voucher)]
   );
   return guest || null;
+}
+
+// A guest's own emergency grant raises the voucher's allowance, so every figure
+// reported back to them has to carry it — the same reason getAllowance() does on
+// the account side. Showing the voucher's 1 GB while the meter enforces 4 makes
+// a grant look like it never arrived.
+//
+// `undefined` = no priority at all; `null` back from emergencyDataCapGb = no
+// cutoff at all, which is the "unlimited" these endpoints already spell as null.
+//
+// Never throws: a failed lookup falls back to the voucher's own figure, which is
+// what the guest would have been told anyway. These run inside response paths
+// where a throw costs the guest a spent voucher code.
+async function guestEffectiveCapGb(guestId, voucherCapGb) {
+  const base = Number(voucherCapGb) || 0;
+  try {
+    const grant = guestId == null ? undefined : await activeGuestPriorityGrant(guestId);
+    return grant === undefined ? base : emergencyDataCapGb(base, grant);
+  } catch (err) {
+    console.error("Guest emergency lookup failed, reporting voucher figure:", err.message);
+    return base;
+  }
+}
+
+async function guestDataLimitMb(guestId, voucherCapGb) {
+  const capGb = await guestEffectiveCapGb(guestId, voucherCapGb);
+  return capGb > 0 ? capGb * 1024 : null; // null = unlimited
 }
 
 // How many places are left on a voucher, and how to say so when there are none.
@@ -141,7 +173,7 @@ async function sessionFromGuestToken(req) {
 // who is not recognised can still type a password, and a guest has nothing to
 // type. Their voucher is not a substitute — several guests can hold the same
 // code, so it names a voucher and not a person.
-const GUEST_SESSION_FIELDS = `gs.id, gs.guest_name, gs.mac_address, gs.status,
+const GUEST_SESSION_FIELDS = `gs.id, gs.guest_id, gs.guest_name, gs.mac_address, gs.status,
             gs.bytes_used, g.data_limit_gb, g.expires_at
        FROM guest_sessions gs JOIN guests g ON g.id = gs.guest_id`;
 
@@ -276,7 +308,12 @@ router.post("/verify", async (req, res) => {
     // scripts/addGuestSessionMetering.js hasn't been run) must not 500 and cost
     // the guest their code. The meter's self-heal picks the session up instead.
     try {
-      const limits = await getRoleBandwidth("guest");
+      // Built with the guest's own emergency grant already folded in, so a
+      // prioritised guest is boosted from their first packet rather than sitting
+      // at plain guest speed until the meter next reconciles.
+      const roleLimits = await getRoleBandwidth("guest");
+      const grant = await activeGuestPriorityGrant(guest.id);
+      const limits = grant === undefined ? roleLimits : emergencyLimitsFor(roleLimits, grant);
       const granted = await grantAccess(clientIp, guestSessionId, "guest", limits);
       if (granted) {
         await db.query(
@@ -347,7 +384,7 @@ router.get("/me", async (req, res) => {
       guestName: session.guest_name,
       status: session.status,
       bytesUsed: Number(session.bytes_used || 0),
-      dataLimitMb: session.data_limit_gb > 0 ? session.data_limit_gb * 1024 : null, // null = unlimited
+      dataLimitMb: await guestDataLimitMb(session.guest_id, session.data_limit_gb),
       expiresAt: session.expires_at,
       recognizedDevice: true,
     });
@@ -382,7 +419,7 @@ router.get("/session-status", async (req, res) => {
       return res.json({
         status: claimed.status,
         bytesUsed: Number(claimed.bytes_used || 0),
-        dataLimitMb: claimed.data_limit_gb > 0 ? claimed.data_limit_gb * 1024 : null,
+        dataLimitMb: await guestDataLimitMb(claimed.guest_id, claimed.data_limit_gb),
         expiresAt: claimed.expires_at,
       });
     }
@@ -390,7 +427,7 @@ router.get("/session-status", async (req, res) => {
     const guest = await findGuestByVoucher(token, "id, max_uses");
     if (!guest) return res.status(404).json({ message: "No session found for this code." });
 
-    const SESSION_COLUMNS = `gs.status, gs.bytes_used, g.data_limit_gb, g.expires_at
+    const SESSION_COLUMNS = `gs.guest_id, gs.status, gs.bytes_used, g.data_limit_gb, g.expires_at
          FROM guest_sessions gs
          JOIN guests g ON g.id = gs.guest_id`;
 
@@ -419,7 +456,7 @@ router.get("/session-status", async (req, res) => {
     res.json({
       status: row.status, // 'active' | 'timeout' | 'data_limit' | 'force-disconnected' | 'ended'
       bytesUsed: Number(row.bytes_used || 0),
-      dataLimitMb: row.data_limit_gb > 0 ? row.data_limit_gb * 1024 : null, // null = unlimited
+      dataLimitMb: await guestDataLimitMb(row.guest_id, row.data_limit_gb),
       expiresAt: row.expires_at,
     });
   } catch (err) {

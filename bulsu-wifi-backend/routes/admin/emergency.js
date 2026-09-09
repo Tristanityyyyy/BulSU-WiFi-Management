@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../../db');
 const crypto = require('crypto');
 const { logAudit, ACTIONS } = require('../../utils/auditLog');
+const { applyPrioritiesToLiveSessions } = require('../../utils/emergency');
 
 // student/faculty/staff are all "pick individual people" targets, resolved identically apart
 // from which role they're scoped to — kept as one list instead of three near-duplicate branches.
@@ -328,7 +329,20 @@ router.post('/', async (req, res) => {
 
     const { toActivate, toUpdate, unchanged } = await splitByOutcome(kind, targets, grant);
 
+    // Everyone this activation named, including those whose figures already
+    // matched. Re-submitting an unchanged activation writes nothing, but it is
+    // what an admin does when a boost looks like it never landed — so it re-pushes
+    // their queues rather than being a no-op that confirms their suspicion.
+    const pushToRouter = async (list) => {
+      const ids = list.map((t) => t.id);
+      await applyPrioritiesToLiveSessions(
+        kind === 'guest' ? [] : ids,
+        kind === 'guest' ? ids : []
+      );
+    };
+
     if (toActivate.length === 0 && toUpdate.length === 0) {
+      await pushToRouter(unchanged);
       const alreadyActiveNames = namesOf(unchanged);
       return res.status(200).json({
         activated: 0,
@@ -400,6 +414,14 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Land the grant on the router now instead of leaving it to the meter's next
+    // tick. An admin who has just declared an emergency should not have to wait
+    // two minutes to find out whether it took, and the people it was granted to
+    // certainly should not. The meter remains the backstop: this is best-effort
+    // and reports nothing, so a router outage cannot fail an activation that has
+    // already been recorded.
+    await pushToRouter([...toActivate, ...toUpdate, ...unchanged]);
+
     res.status(201).json({
       activated: toActivate.length,
       updated: toUpdate.length,
@@ -419,10 +441,21 @@ router.post('/', async (req, res) => {
 // PATCH /api/admin/emergency/:id/deactivate — single, ungrouped row
 router.patch('/:id/deactivate', async (req, res) => {
   try {
-    const [[row]] = await db.query('SELECT target_label FROM emergency_priority WHERE id=?', [req.params.id]);
+    // user_id/guest_id ride along with the label this already read, so the queue
+    // can be put back to the role's ordinary limits below.
+    const [[row]] = await db.query(
+      'SELECT target_label, user_id, guest_id FROM emergency_priority WHERE id=?',
+      [req.params.id]
+    );
     await db.query(
       'UPDATE emergency_priority SET status="ended", deactivated_at=NOW() WHERE id=?',
       [req.params.id]
+    );
+    // Status now reads 'ended', so this resolves to the plain role limits — the
+    // boost lifts on the spot rather than lingering until the meter next runs.
+    await applyPrioritiesToLiveSessions(
+      row?.user_id != null ? [row.user_id] : [],
+      row?.guest_id != null ? [row.guest_id] : []
     );
     await logAudit(req, {
       action: ACTIONS.UPDATE,
@@ -444,9 +477,20 @@ router.patch('/batch/:batchId/deactivate', async (req, res) => {
       'SELECT target_label FROM emergency_priority WHERE batch_id=? LIMIT 1',
       [req.params.batchId]
     );
+    // Whose queues to put back, gathered before the update while the rows still
+    // say 'active' — after it, an already-ended row from an earlier deactivation
+    // would be indistinguishable from one this call just ended.
+    const [members] = await db.query(
+      'SELECT user_id, guest_id FROM emergency_priority WHERE batch_id=? AND status="active"',
+      [req.params.batchId]
+    );
     const [result] = await db.query(
       'UPDATE emergency_priority SET status="ended", deactivated_at=NOW() WHERE batch_id=? AND status="active"',
       [req.params.batchId]
+    );
+    await applyPrioritiesToLiveSessions(
+      members.filter((m) => m.user_id != null).map((m) => m.user_id),
+      members.filter((m) => m.guest_id != null).map((m) => m.guest_id)
     );
     await logAudit(req, {
       action: ACTIONS.UPDATE,

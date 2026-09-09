@@ -1,5 +1,7 @@
 const db = require("../db");
-const { getSettings } = require("./settings");
+const { getSettings, getRoleBandwidthMap } = require("./settings");
+const { setQueueLimit, ENABLED } = require("./routeros");
+const { CAPPED_ROLES } = require("./constants");
 
 // What an emergency priority actually buys, now that it buys something.
 //
@@ -120,8 +122,95 @@ async function activePriorityGrant(userId) {
   return row ? grantFromRow(row) : undefined;
 }
 
-async function hasActivePriority(userId) {
-  return (await activePriorityGrant(userId)) !== undefined;
+// The guest sibling of the lookup above, for the voucher paths that hold one
+// guest and have no reason to read the whole table. Same tri-state contract:
+// undefined = no priority, null = a priority carrying no figures.
+async function activeGuestPriorityGrant(guestId) {
+  if (!(await isEmergencyEnforced())) return undefined;
+  const [[row]] = await db.query(
+    `SELECT extra_up_mbps, extra_down_mbps, extra_data_gb
+       FROM emergency_priority WHERE status = 'active' AND guest_id = ? LIMIT 1`,
+    [guestId]
+  );
+  return row ? grantFromRow(row) : undefined;
+}
+
+// Push a just-changed set of priorities onto the live queues now, rather than
+// leaving it to the meter's next tick.
+//
+// This is not a second source of truth. It is the same resolution the meter
+// runs, run early and only for the handful of people an admin just acted on —
+// the meter still reconciles everything on its own schedule and will repair
+// anything that fails here. Without it an activation took up to a full tick
+// (two minutes by default) to reach the router, which during an emergency is
+// precisely the wrong moment to be waiting.
+//
+// Deactivation calls this too: by then the rows read 'ended', so
+// getActivePriorities() no longer returns them and the same resolution lands
+// the role's ordinary limits back on the queue.
+//
+// Best-effort, like every other router call in this codebase — a return value
+// nobody has to check, and never a throw. A router outage must not fail the
+// activation that triggered it.
+async function applyPrioritiesToLiveSessions(userIds = [], guestIds = []) {
+  if (!ENABLED || (!userIds.length && !guestIds.length)) return 0;
+  try {
+    return await applyToQueues(userIds, guestIds);
+  } catch (err) {
+    console.error("Emergency queue apply failed (meter will retry):", err.message);
+    return 0;
+  }
+}
+
+async function applyToQueues(userIds, guestIds) {
+  const priorities = await getActivePriorities();
+  const bandwidth = await getRoleBandwidthMap([...CAPPED_ROLES, "guest"]);
+  let applied = 0;
+
+  // A role with no entry in the bandwidth map is skipped rather than sent through
+  // as `undefined`, which toMaxLimit() would read as 0 and hand out as unlimited.
+  const push = async (queueId, limits) => {
+    if (!queueId || !limits) return;
+    if (await setQueueLimit(queueId, limits)) applied++;
+  };
+
+  if (userIds.length) {
+    const [rows] = await db.query(
+      `SELECT aq.user_id, aq.queue_id, u.role
+         FROM active_queues aq
+         JOIN sessions s ON s.id = aq.session_id AND s.status = 'active'
+         JOIN users u ON u.id = aq.user_id
+        WHERE aq.user_id IN (?)`,
+      [userIds]
+    );
+    for (const row of rows) {
+      const roleLimits = bandwidth[row.role];
+      await push(
+        row.queue_id,
+        priorities.users.has(row.user_id)
+          ? emergencyLimitsFor(roleLimits, priorities.users.get(row.user_id))
+          : roleLimits
+      );
+    }
+  }
+
+  if (guestIds.length) {
+    const [rows] = await db.query(
+      `SELECT guest_id, queue_id FROM guest_sessions
+        WHERE status = 'active' AND queue_id IS NOT NULL AND guest_id IN (?)`,
+      [guestIds]
+    );
+    for (const row of rows) {
+      await push(
+        row.queue_id,
+        priorities.guests.has(row.guest_id)
+          ? emergencyLimitsFor(bandwidth.guest, priorities.guests.get(row.guest_id))
+          : bandwidth.guest
+      );
+    }
+  }
+
+  return applied;
 }
 
 module.exports = {
@@ -131,5 +220,6 @@ module.exports = {
   isEmergencyEnforced,
   getActivePriorities,
   activePriorityGrant,
-  hasActivePriority,
+  activeGuestPriorityGrant,
+  applyPrioritiesToLiveSessions,
 };

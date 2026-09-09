@@ -8,6 +8,22 @@ const ENABLED = !!process.env.MIKROTIK_HOST;
 const ACCESS_MODE = process.env.MIKROTIK_ACCESS_MODE || "hotspot_ip_binding";
 const TAG_PREFIX = "bulsu-wifi:";
 
+// The queue every client queue hangs under, by name. Unset = no parent, which is
+// how this ran until now.
+//
+// It is what makes an emergency priority mean anything. RouterOS `priority` only
+// orders *sibling* classes competing for a shared parent's spare bandwidth. With
+// every queue standing alone under the global root, the router is never the
+// bottleneck — congestion happens upstream at the ISP handoff, where a priority
+// field on our side has no effect whatsoever. So priority 1 was being written
+// faithfully to every emergency queue and buying nothing: the grant raised the
+// holder's ceiling, but nobody actually gave way to them.
+//
+// Give the queues a parent capped just under the real uplink and the router
+// becomes the bottleneck it needs to be to arbitrate at all. See the "Parent
+// queue" section of mikrotik-wan-uplink-setup.md for the queue itself.
+const PARENT_QUEUE = process.env.MIKROTIK_PARENT_QUEUE || "";
+
 // A Simple Queue with max-limit=0/0 AND limit-at=0/0 gives RouterOS nothing to
 // schedule, so it never installs an HTB class for it — and a queue outside the
 // HTB counts nothing. That is why `data_usage` stayed empty for every session on
@@ -203,7 +219,14 @@ async function grantAccess(rawIp, id, kind = "session", limits = null) {
       } else {
         await conn.write("/ip/firewall/address-list/add", ["=list=bulsu-authorized", `=address=${ip}`, `=comment=${tag}`]);
       }
-      const added = await conn.write("/queue/simple/add", [`=name=${tag}`, `=target=${ip}/32`, `=max-limit=${toMaxLimit(limits)}`, `=priority=${toPriority(limits)}`, `=comment=${tag}`]);
+      const added = await conn.write("/queue/simple/add", [
+        `=name=${tag}`,
+        `=target=${ip}/32`,
+        `=max-limit=${toMaxLimit(limits)}`,
+        `=priority=${toPriority(limits)}`,
+        ...(PARENT_QUEUE ? [`=parent=${PARENT_QUEUE}`] : []),
+        `=comment=${tag}`,
+      ]);
       // Read on the way out, on the connection already in hand — no extra
       // round-trip, and the caller gets to record which device this actually was
       // rather than leaving it blank for the presence sweeper to fill in later.
@@ -439,4 +462,4 @@ async function setQueueLimit(queueId, limits) {
   }
 }
 
-module.exports = { grantAccess, revokeAccess, readQueueState, readClientMac, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, isRouterAddress, DEFAULT_QUEUE_PRIORITY, ENABLED };
+module.exports = { grantAccess, revokeAccess, readQueueState, readClientMac, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, isRouterAddress, DEFAULT_QUEUE_PRIORITY, PARENT_QUEUE, ENABLED };

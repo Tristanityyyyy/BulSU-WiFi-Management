@@ -1,7 +1,7 @@
 const db = require("../db");
 const { getSettings, getRoleSessionMinutesMap } = require("../utils/settings");
 const { CAPPED_ROLES } = require("../utils/constants");
-const { getActivePriorities } = require("../utils/emergency");
+const { getActivePriorities, emergencyDataCapGb } = require("../utils/emergency");
 
 const MB = 1024 * 1024;
 
@@ -50,8 +50,10 @@ async function sweepSessionNotices() {
 
   const windows = await getRoleSessionMinutesMap([...new Set(rows.map((r) => r.role))]);
   const caps = await getSettings(CAPPED_ROLES.map((role) => `data_cap_gb_${role}`));
-  // An account whose cap has been waived has nothing to run out of, so warning
-  // it about a limit that isn't being applied would be a lie.
+  // Emergency grants, so the warning below measures against the cutoff actually
+  // in force. An account whose cap has been waived outright has nothing to run
+  // out of and is not warned; one holding a measured grant still has a real
+  // cutoff, just a higher one, and is warned against that.
   const priorities = await getActivePriorities();
 
   // Already-warned lookups, in bulk. A session-length warning is once per
@@ -88,8 +90,17 @@ async function sweepSessionNotices() {
       }
     }
 
-    if (lowDataMB > 0 && !userWarned.has(row.user_id) && !priorities.users.has(row.user_id)) {
-      const capGb = Number(caps[`data_cap_gb_${row.role}`]);
+    if (lowDataMB > 0 && !userWarned.has(row.user_id)) {
+      // Warn against the cutoff actually in force, which for a prioritised
+      // account is its role cap plus whatever was granted. This used to skip
+      // anyone holding a priority outright — correct while every priority waived
+      // the cap, but a measured grant leaves a real cutoff in place, and those
+      // users were being disconnected at it with no warning at all. `null` still
+      // means there is genuinely nothing to run out of, and nothing to warn about.
+      const roleCapGb = Number(caps[`data_cap_gb_${row.role}`]);
+      const capGb = priorities.users.has(row.user_id)
+        ? emergencyDataCapGb(roleCapGb, priorities.users.get(row.user_id))
+        : roleCapGb;
       if (capGb > 0) {
         const remainingMB = (capGb * 1024 * MB - Number(row.bytes_used)) / MB;
         if (remainingMB > 0 && remainingMB <= lowDataMB) {

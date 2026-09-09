@@ -36,9 +36,32 @@ async function resolveActiveTags(tags) {
   return active;
 }
 
+// active_queues rows whose session has since ended.
+//
+// endSession keeps its row when revokeAccess could not reach the router, so the
+// database goes on saying a queue exists — which it does. Once this sweep has
+// removed the queue from the router the row is the only thing left saying so,
+// and nothing else on the account side would ever clear it. The meter already
+// ignores these (it joins on an active session), so this is bookkeeping rather
+// than a behaviour change.
+async function clearEndedQueueRows() {
+  const [result] = await db.query(
+    `DELETE aq FROM active_queues aq
+       JOIN sessions s ON s.id = aq.session_id
+      WHERE s.status <> 'active'`
+  );
+  return result.affectedRows;
+}
+
 async function sweepOrphanGrants() {
   if (!ENABLED) return 0;
-  return reapOrphanGrants(resolveActiveTags);
+  const removed = await reapOrphanGrants(resolveActiveTags);
+  // After the router side, never before: while the queue is still up there the
+  // row is an accurate record of it.
+  await clearEndedQueueRows().catch((err) =>
+    console.error("Clearing ended active_queues rows failed:", err.message)
+  );
+  return removed;
 }
 
 // Quarter-hourly is plenty: orphans only appear when a revoke couldn't reach the
@@ -65,4 +88,4 @@ function startOrphanGrantSweeper(intervalMs = 15 * 60 * 1000) {
   return timer;
 }
 
-module.exports = { sweepOrphanGrants, resolveActiveTags, startOrphanGrantSweeper };
+module.exports = { sweepOrphanGrants, resolveActiveTags, clearEndedQueueRows, startOrphanGrantSweeper };
