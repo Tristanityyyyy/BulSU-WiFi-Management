@@ -1,4 +1,4 @@
-import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren, Ticket } from "lucide-react";
+import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren, Ticket, Router } from "lucide-react";
 import SectionCard from "./SectionCard";
 import { ROLE_LABELS } from "../../../constants/roles";
 
@@ -89,17 +89,40 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
   return (
     <form id="settings-form" onSubmit={onSubmit}>
       {activeSection === "bandwidth" && (
-        <RoleTable
-          icon={<Gauge size={16} />}
-          title="Bandwidth Limits"
-          hint="Maximum upload and download speed per connected device."
-          settings={settings}
-          onChange={onChange}
-          columns={[
-            { key: "bandwidth_upload", label: "Upload", unit: "Mbps" },
-            { key: "bandwidth_download", label: "Download", unit: "Mbps" },
-          ]}
-        />
+        <div className="space-y-4">
+          <RoleTable
+            icon={<Gauge size={16} />}
+            title="Bandwidth Limits"
+            hint="Maximum upload and download speed per connected device."
+            settings={settings}
+            onChange={onChange}
+            columns={[
+              { key: "bandwidth_upload", label: "Upload", unit: "Mbps" },
+              { key: "bandwidth_download", label: "Download", unit: "Mbps" },
+            ]}
+          />
+          {/* The per-device figures above decide how fast one client may go when
+              there is capacity going spare. This one decides who wins when there
+              isn't — without it every client queue stands on its own, the router
+              is never the bottleneck, and an emergency priority's "serve this
+              person first" has nothing to be first in front of. */}
+          <SectionCard
+            icon={<Router size={16} />}
+            title="Total Uplink"
+            hint="The ceiling for all client traffic together, which is what lets an emergency priority actually take precedence. Measure your internet speed from a wired computer at a quiet hour, then enter about 90-95% of it — a little under the real line, so this router does the queuing instead of your provider. 0 turns it off.">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={settings.uplink_total_mbps ?? ""}
+                onChange={(e) => onChange("uplink_total_mbps", e.target.value)}
+                className="border border-slate-200 dark:border-wine-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent w-20 transition"
+              />
+              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">Mbps total</span>
+            </div>
+          </SectionCard>
+        </div>
       )}
       {activeSection === "datacap" && (
         <div className="space-y-4">

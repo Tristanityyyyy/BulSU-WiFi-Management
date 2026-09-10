@@ -3,6 +3,8 @@ const db = require('../../db');
 const bcrypt = require('bcrypt');
 const { logAudit, ACTIONS } = require('../../utils/auditLog');
 const { verifyOwnPassword } = require('../../utils/verifyOwnPassword');
+const { ensureParentQueue } = require('../../utils/routeros');
+const { getUplinkTotalMbps } = require('../../utils/settings');
 
 // A catalog entry referenced by any user (incl. soft-deleted) or by the permanent
 // enrollment_history is archived rather than hard-deleted, so those references
@@ -451,6 +453,19 @@ router.put('/', async (req, res) => {
       description: `Updated settings: ${entries.map(([k]) => k).join(', ')}`,
       metadata: Object.fromEntries(entries),
     });
+
+    // A changed uplink ceiling reaches the router now rather than at the next
+    // restart. Only when that key was actually submitted — every other settings
+    // save would otherwise pay for a router round-trip it has no use for.
+    //
+    // Best-effort: the save itself has already succeeded and is what the admin is
+    // waiting on, and the orphan sweeper re-asserts this every 15 minutes anyway.
+    if (entries.some(([key]) => key === 'uplink_total_mbps')) {
+      await ensureParentQueue(await getUplinkTotalMbps()).catch((err) =>
+        console.error('Parent queue update failed (sweeper will retry):', err.message)
+      );
+    }
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to save settings.' });

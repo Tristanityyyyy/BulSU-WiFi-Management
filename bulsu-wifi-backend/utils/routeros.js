@@ -8,8 +8,7 @@ const ENABLED = !!process.env.MIKROTIK_HOST;
 const ACCESS_MODE = process.env.MIKROTIK_ACCESS_MODE || "hotspot_ip_binding";
 const TAG_PREFIX = "bulsu-wifi:";
 
-// The queue every client queue hangs under, by name. Unset = no parent, which is
-// how this ran until now.
+// The queue every client queue hangs under.
 //
 // It is what makes an emergency priority mean anything. RouterOS `priority` only
 // orders *sibling* classes competing for a shared parent's spare bandwidth. With
@@ -19,10 +18,25 @@ const TAG_PREFIX = "bulsu-wifi:";
 // faithfully to every emergency queue and buying nothing: the grant raised the
 // holder's ceiling, but nobody actually gave way to them.
 //
-// Give the queues a parent capped just under the real uplink and the router
-// becomes the bottleneck it needs to be to arbitrate at all. See the "Parent
-// queue" section of mikrotik-wan-uplink-setup.md for the queue itself.
-const PARENT_QUEUE = process.env.MIKROTIK_PARENT_QUEUE || "";
+// Capped just under the real uplink, the router becomes the bottleneck it has to
+// be in order to arbitrate at all.
+const PARENT_QUEUE_NAME = "bulsu-wifi-total";
+const PARENT_TAG = `${TAG_PREFIX}parent`;
+
+// The parent's name once it is known to exist on the router, or null.
+//
+// grantAccess() consults this rather than reading Settings on every login: the
+// figure changes about once, and a queue built without a parent is repaired by
+// the next sweep anyway. Set by ensureParentQueue() — which runs at startup, on
+// save, and on the orphan sweep — so it reflects what is actually up there
+// rather than what the database wishes were.
+let activeParentQueue = null;
+
+// An explicit override for deployments where the router's own tables don't
+// describe the client range usefully. Normally left unset: the subnet is read
+// from the router in resolveClientSubnet() below, because a /24 is an assumption
+// and the router already knows the answer.
+const CLIENT_SUBNET = process.env.MIKROTIK_CLIENT_SUBNET || "";
 
 // A Simple Queue with max-limit=0/0 AND limit-at=0/0 gives RouterOS nothing to
 // schedule, so it never installs an HTB class for it — and a queue outside the
@@ -224,7 +238,7 @@ async function grantAccess(rawIp, id, kind = "session", limits = null) {
         `=target=${ip}/32`,
         `=max-limit=${toMaxLimit(limits)}`,
         `=priority=${toPriority(limits)}`,
-        ...(PARENT_QUEUE ? [`=parent=${PARENT_QUEUE}`] : []),
+        ...(activeParentQueue ? [`=parent=${activeParentQueue}`] : []),
         `=comment=${tag}`,
       ]);
       // Read on the way out, on the connection already in hand — no extra
@@ -445,6 +459,137 @@ async function readNetworkPresence() {
   }
 }
 
+// The client range the parent queue should shape, as "192.168.88.0/24".
+//
+// Read off the router rather than derived from MIKROTIK_HOST: the netmask is not
+// ours to assume, and the router already holds the answer. The DHCP network is
+// the better of the two sources — it is stated in exactly the form the queue
+// target wants — with the bridge's own address as the fallback, masked down to
+// its network. Returns null when neither answers, which leaves the parent
+// uncreated rather than shaping a range we guessed at.
+async function resolveClientSubnet(conn) {
+  if (CLIENT_SUBNET) return CLIENT_SUBNET;
+
+  const networks = await conn.write("/ip/dhcp-server/network/print", []).catch(() => []);
+  for (const net of networks) {
+    if (net.address && net.address.includes("/")) return net.address;
+  }
+
+  const addresses = await conn.write("/ip/address/print", []).catch(() => []);
+  for (const entry of addresses) {
+    // `network` is what RouterOS computed for that interface; prefer it over
+    // masking the address ourselves. Skip the WAN side — a client subnet the
+    // router reaches the internet through is not one we should be shaping.
+    if (entry.disabled === "true" || !entry.address || !entry.address.includes("/")) continue;
+    const [addr, bits] = entry.address.split("/");
+    if (!isGrantableIp(addr)) continue;
+    if (entry.network) return `${entry.network}/${bits}`;
+  }
+
+  return null;
+}
+
+// Creates, updates or removes the queue every client queue hangs under, and
+// hangs the existing ones under it.
+//
+// `mbps` is the ceiling to enforce, straight from Settings → Network. 0 (or
+// blank, or unset) means no parent at all, which is how this ran before the
+// setting existed — and switching back to it has to unwind cleanly rather than
+// leaving orphaned children pointing at a queue that is about to go.
+//
+// Never throws and never blocks anything: a router that is unreachable leaves
+// activeParentQueue as it was and the next sweep tries again. Returns the name
+// when a parent is in place, null when there is deliberately none.
+async function ensureParentQueue(mbps) {
+  if (!ENABLED) return null;
+  try {
+    return await withConnection(async (conn) => {
+      const queues = await conn.write("/queue/simple/print", []).catch(() => []);
+      const byName = queues.find((q) => q.name === PARENT_QUEUE_NAME);
+
+      // Never adopt a queue somebody else made. The same refusal isOursToReuse()
+      // applies to ip-bindings, and for the same reason: adopting it would mean
+      // deleting it later on a change that was never theirs to make.
+      if (byName && byName.comment !== PARENT_TAG) {
+        console.warn(
+          `MikroTik ensureParentQueue refused — a queue named "${PARENT_QUEUE_NAME}" already exists ` +
+          `with comment "${byName.comment || ""}". Leaving it untouched; no parent will be applied.`
+        );
+        activeParentQueue = null;
+        return null;
+      }
+
+      // Our client queues, by the tag grantAccess writes. The parent is excluded
+      // by name — it carries the prefix too, and a queue cannot parent itself.
+      const children = queues.filter(
+        (q) => q.name !== PARENT_QUEUE_NAME &&
+          (String(q.comment || "").startsWith(TAG_PREFIX) || String(q.name || "").startsWith(TAG_PREFIX))
+      );
+
+      const wanted = Number(mbps) > 0 ? Number(mbps) : 0;
+
+      if (!wanted) {
+        // Detach before removing, or RouterOS is left holding children that name
+        // a parent which no longer exists.
+        for (const child of children) {
+          if (child.parent && child.parent !== "none") {
+            await conn.write("/queue/simple/set", [`=.id=${child[".id"]}`, "=parent=none"]).catch(() => {});
+          }
+        }
+        if (byName) {
+          await conn.write("/queue/simple/remove", [`=.id=${byName[".id"]}`]).catch(() => {});
+        }
+        activeParentQueue = null;
+        return null;
+      }
+
+      const maxLimit = `${wanted}M/${wanted}M`;
+      let parentId = byName?.[".id"];
+
+      if (!byName) {
+        const subnet = await resolveClientSubnet(conn);
+        if (!subnet) {
+          console.warn(
+            "MikroTik ensureParentQueue skipped — could not determine the client subnet from the " +
+            "router's DHCP networks or interface addresses. Set MIKROTIK_CLIENT_SUBNET to name it."
+          );
+          activeParentQueue = null;
+          return null;
+        }
+        const added = await conn.write("/queue/simple/add", [
+          `=name=${PARENT_QUEUE_NAME}`,
+          `=target=${subnet}`,
+          `=max-limit=${maxLimit}`,
+          `=comment=${PARENT_TAG}`,
+        ]);
+        parentId = added[0].ret;
+      } else if (!maxLimitMatches(byName["max-limit"], { upMbps: wanted, downMbps: wanted })) {
+        await conn.write("/queue/simple/set", [`=.id=${parentId}`, `=max-limit=${maxLimit}`]);
+      }
+
+      // RouterOS matches simple queues top-down and a child must sit after its
+      // parent. A queue added just now lands at the bottom, below every client
+      // queue already there, so without this the adoption below has nothing
+      // valid to attach to.
+      await conn.write("/queue/simple/move", [`=numbers=${parentId}`, "=destination=0"]).catch(() => {});
+
+      for (const child of children) {
+        if (child.parent !== PARENT_QUEUE_NAME) {
+          await conn
+            .write("/queue/simple/set", [`=.id=${child[".id"]}`, `=parent=${PARENT_QUEUE_NAME}`])
+            .catch(() => {});
+        }
+      }
+
+      activeParentQueue = PARENT_QUEUE_NAME;
+      return PARENT_QUEUE_NAME;
+    });
+  } catch (err) {
+    console.error("MikroTik ensureParentQueue failed:", err.message);
+    return activeParentQueue;
+  }
+}
+
 // Re-applies a role's ceiling and priority to a queue that already exists, so an admin
 // editing Settings → Network takes effect on sessions that are already live
 // rather than only on the next login. Best-effort like everything else here:
@@ -462,4 +607,4 @@ async function setQueueLimit(queueId, limits) {
   }
 }
 
-module.exports = { grantAccess, revokeAccess, readQueueState, readClientMac, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, isRouterAddress, DEFAULT_QUEUE_PRIORITY, PARENT_QUEUE, ENABLED };
+module.exports = { grantAccess, revokeAccess, readQueueState, readClientMac, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, isRouterAddress, DEFAULT_QUEUE_PRIORITY, PARENT_QUEUE_NAME, ensureParentQueue, ENABLED };

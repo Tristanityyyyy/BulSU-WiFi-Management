@@ -1,5 +1,6 @@
 const db = require("../db");
-const { reapOrphanGrants, ENABLED } = require("../utils/routeros");
+const { reapOrphanGrants, ensureParentQueue, ENABLED } = require("../utils/routeros");
+const { getUplinkTotalMbps } = require("../utils/settings");
 
 // Which of the tags found on the router still belong to a live session.
 //
@@ -55,6 +56,11 @@ async function clearEndedQueueRows() {
 
 async function sweepOrphanGrants() {
   if (!ENABLED) return 0;
+  // Re-assert the parent queue on the same schedule. This is already the job
+  // that reconciles what is on the router against what should be, so a parent
+  // deleted by hand in WinBox — or never created because the router was down at
+  // startup — comes back on its own rather than waiting for the next restart.
+  await ensureParentQueue(await getUplinkTotalMbps());
   const removed = await reapOrphanGrants(resolveActiveTags);
   // After the router side, never before: while the queue is still up there the
   // row is an accurate record of it.

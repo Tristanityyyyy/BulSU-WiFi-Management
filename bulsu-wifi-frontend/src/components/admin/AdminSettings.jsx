@@ -15,6 +15,10 @@ const DEFAULTS = {
   bandwidth_upload_faculty: 5,   bandwidth_download_faculty: 10,
   bandwidth_upload_staff: 5,     bandwidth_download_staff: 10,
   bandwidth_upload_guest: 1,     bandwidth_download_guest: 2,
+  // Not per device and not per role: the ceiling for all client traffic at once,
+  // which is what gives an emergency priority something to take precedence in.
+  // 0 = no total ceiling, which is how this ran before the setting existed.
+  uplink_total_mbps: 0,
   data_cap_gb_student: 1,        data_cap_gb_faculty: 0,
   data_cap_gb_staff: 0,
   // Not a daily cap and not per role: the total a single guest voucher is

@@ -14,6 +14,8 @@ const { startDataUsageMeter } = require("./jobs/dataUsageMeter");
 const { startSessionPresenceSweeper } = require("./jobs/sessionPresence");
 const { startOrphanGrantSweeper } = require("./jobs/orphanGrants");
 const { startSessionNoticeSweeper } = require("./jobs/sessionNotices");
+const { ensureParentQueue } = require("./utils/routeros");
+const { getUplinkTotalMbps } = require("./utils/settings");
 
 const app = express();
 
@@ -33,6 +35,14 @@ startDataUsageMeter();
 startSessionPresenceSweeper();
 startOrphanGrantSweeper();
 startSessionNoticeSweeper();
+
+// Put the parent queue up before the first client connects, so a session opened
+// seconds after a restart is already hanging under it. Deliberately not awaited:
+// a router that is slow or unreachable must not hold the port closed, and the
+// orphan sweeper re-asserts this every 15 minutes regardless.
+getUplinkTotalMbps()
+  .then(ensureParentQueue)
+  .catch((err) => console.error("Parent queue setup failed at startup:", err.message));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

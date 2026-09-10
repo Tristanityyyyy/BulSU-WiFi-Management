@@ -70,11 +70,30 @@ async function getRoleSessionMinutes(role) {
   return (await getRoleSessionMinutesMap([role]))[role];
 }
 
+// The ceiling to hold *all* client traffic to, in Mbps — the parent queue every
+// client queue hangs under.
+//
+// 0, blank or unset means no parent at all, which is how the system ran before
+// this setting existed. Unlike the per-role figures, 0 here does not mean
+// "unlimited": there is simply no parent queue, so nothing arbitrates between
+// clients and an emergency priority's queue priority buys nothing. See
+// ensureParentQueue() in utils/routeros.js.
+//
+// Deliberately the figure written to the router rather than a measured line
+// speed the code then discounts — what an admin types is what gets enforced, and
+// the "measure, then use 90-95%" advice lives in the field's own hint text.
+async function getUplinkTotalMbps() {
+  const { uplink_total_mbps: raw } = await getSettings(["uplink_total_mbps"]);
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 module.exports = {
   getSettings,
   getRoleBandwidth,
   getRoleBandwidthMap,
   getRoleSessionMinutes,
   getRoleSessionMinutesMap,
+  getUplinkTotalMbps,
   DEFAULT_BANDWIDTH_MBPS,
 };
