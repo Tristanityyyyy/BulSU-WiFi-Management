@@ -16,6 +16,7 @@ import AdminFeedback from './components/admin/AdminFeedback'
 import AdminNotifications from './components/admin/AdminNotifications'
 import AdminSettings from './components/admin/AdminSettings'
 import AdminAuditLog from './components/admin/AdminAuditLog'
+import { SHOW_EMERGENCY } from './config/features'
 import './App.css'
 
 function App() {
@@ -32,7 +33,9 @@ function App() {
         <Route path="users" element={<AdminUsers />} />
         <Route path="sessions" element={<AdminSessions />} />
         <Route path="guests" element={<AdminGuests />} />
-        <Route path="emergency" element={<AdminEmergency />} />
+        {/* Kept mounted so an old bookmark lands somewhere sensible rather than
+            on a blank shell while the feature is hidden. */}
+        <Route path="emergency" element={SHOW_EMERGENCY ? <AdminEmergency /> : <Navigate to="/admin/overview" replace />} />
         <Route path="feedback" element={<AdminFeedback />} />
         <Route path="notifications" element={<AdminNotifications />} />
         <Route path="settings" element={<AdminSettings />} />

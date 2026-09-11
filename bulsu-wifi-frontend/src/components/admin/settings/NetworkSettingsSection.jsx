@@ -1,4 +1,5 @@
 import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren, Ticket, Router } from "lucide-react";
+import { SHOW_EMERGENCY } from "../../../config/features";
 import SectionCard from "./SectionCard";
 import { ROLE_LABELS } from "../../../constants/roles";
 
@@ -221,6 +222,7 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
             </div>
           </SectionCard>
 
+          {SHOW_EMERGENCY && (
           <SectionCard
             icon={<Siren size={16} />}
             title="Emergency Priority"
@@ -238,6 +240,7 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
               ))}
             </div>
           </SectionCard>
+          )}
         </div>
       )}
       {activeSection === "devicepolicy" && (

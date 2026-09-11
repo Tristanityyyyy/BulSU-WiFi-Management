@@ -7,6 +7,7 @@ import {
 import { useTheme } from "../../theme";
 import adminApi from "./adminApi";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import { SHOW_EMERGENCY } from "../../config/features";
 
 // Grouped by what campus IT actually does with each screen.
 const NAV_GROUPS = [
@@ -27,7 +28,7 @@ const NAV_GROUPS = [
   {
     label: "Respond",
     items: [
-      { to: "/admin/emergency", label: "Emergency", Icon: Siren },
+      ...(SHOW_EMERGENCY ? [{ to: "/admin/emergency", label: "Emergency", Icon: Siren }] : []),
       { to: "/admin/notifications", label: "Notifications", Icon: Bell },
       { to: "/admin/feedback", label: "Feedback", Icon: MessageSquare },
     ],

@@ -9,6 +9,7 @@ import NetworkSettingsSection from "./settings/NetworkSettingsSection";
 import CatalogSettingsSection from "./settings/CatalogSettingsSection";
 import AccountSettingsSection from "./settings/AccountSettingsSection";
 import SectionCard from "./settings/SectionCard";
+import { SHOW_EMERGENCY } from "../../config/features";
 
 const DEFAULTS = {
   bandwidth_upload_student: 2,   bandwidth_download_student: 5,
@@ -44,7 +45,9 @@ const NAV_GROUPS = [
       { key: "datacap", label: "Data Caps", icon: Database },
       { key: "timeout", label: "Session Timeout", icon: Timer },
       { key: "devicepolicy", label: "Device Policy", icon: Smartphone },
-      { key: "alerts", label: "Alerts & Priority", icon: BellRing },
+      // Only low-balance warnings are left in this section while the emergency
+      // priority card is hidden, so the tab drops "& Priority" to match.
+      { key: "alerts", label: SHOW_EMERGENCY ? "Alerts & Priority" : "Alerts", icon: BellRing },
     ],
   },
   {
