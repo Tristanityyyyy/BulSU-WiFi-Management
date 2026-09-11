@@ -11,7 +11,9 @@ export default function useUserList({ pageSize }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterEnrollment, setFilterEnrollment] = useState("");
-  const [filterRole, setFilterRole] = useState("");
+  // Students are the bulk of the roll and what this page is opened for day to
+  // day, so the list lands on them; "All Roles" is one select away.
+  const [filterRole, setFilterRole] = useState("student");
   const [filterCourse, setFilterCourse] = useState("");
   const [filterSection, setFilterSection] = useState("");
   const selection = useSelectableSet();

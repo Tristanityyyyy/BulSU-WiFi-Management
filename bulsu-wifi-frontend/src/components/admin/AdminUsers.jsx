@@ -148,12 +148,15 @@ export default function AdminUsers() {
               className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
               <Pencil size={12} />Edit
             </button>
-            {u.role === "student" && (
-              <button onClick={() => setTransitionTarget(u)}
-                className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline">
-                <GraduationCap size={12} />Transition
-              </button>
-            )}
+            {/* Rendered for every role so the action row keeps the same shape
+                down the table. Only a student has an enrollment to move, so the
+                other roles get it disabled rather than missing. */}
+            <button onClick={() => setTransitionTarget(u)}
+              disabled={u.role !== "student"}
+              title={u.role !== "student" ? "Only students have an enrollment to transition." : undefined}
+              className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline">
+              <GraduationCap size={12} />Transition
+            </button>
             <button onClick={() => setResetPasswordTarget(u)}
               disabled={!!u.must_change_password}
               title={u.must_change_password ? "This user already has a default password pending change." : undefined}
