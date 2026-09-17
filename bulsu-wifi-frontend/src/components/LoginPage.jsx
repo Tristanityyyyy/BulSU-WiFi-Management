@@ -7,7 +7,7 @@ import BulsuHeader from "./layout/BulsuHeader";
 import Button from "./ui/Button";
 import AlertBanner from "./ui/AlertBanner";
 import WifiIcon from "./ui/WifiIcon";
-import { GraduationCap, UserRound } from "lucide-react";
+import { BriefcaseBusiness, GraduationCap, UserRound } from "lucide-react";
 import LoadingSpinner from "./ui/LoadingSpinner";
 import WelcomeScreen from "./WelcomeScreen";
 import { greetingName } from "../utils/names";
@@ -29,6 +29,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  // Which sign-in tab is showing: "student" or "staff". Visitor is a separate page.
+  const [audience, setAudience] = useState("student");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -341,26 +343,35 @@ export default function LoginPage() {
             bottom telling them to go and find something — no use on the sign-in
             sheet this renders in, which has no address bar and no way out to
             another app. Asking the question first gives them a door. */}
-        <div className="grid grid-cols-2 gap-2 mb-5" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected="true"
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-pink-200 bg-pink-50 text-pink-700 font-semibold text-xs sm:text-sm py-2.5 transition-all"
-          >
-            <GraduationCap size={15} strokeWidth={2.2} />
-            Student / Staff
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="false"
-            onClick={() => navigate("/guest")}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 text-gray-600 font-semibold text-xs sm:text-sm py-2.5 transition-all hover:bg-slate-50 active:scale-[0.99]"
-          >
-            <UserRound size={15} strokeWidth={2.2} />
-            Visitor
-          </button>
+        {/* Students and staff/faculty sign in with the same form — the server
+            works out the role from the account — so those two tabs only mark
+            who is signing in. Three across leaves each tab too narrow on a phone
+            for the icon to sit beside its label, so it stacks above it there. */}
+        <div className="grid grid-cols-3 gap-2 mb-5" role="tablist">
+          {[
+            { key: "student", label: "Student", Icon: GraduationCap },
+            { key: "staff", label: "Staff/Faculty", Icon: BriefcaseBusiness },
+            { key: "visitor", label: "Visitor", Icon: UserRound },
+          ].map(({ key, label, Icon }) => {
+            const selected = audience === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => (key === "visitor" ? navigate("/guest") : setAudience(key))}
+                className={`inline-flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 rounded-xl border font-semibold text-xs sm:text-sm py-2.5 px-1 transition-all ${
+                  selected
+                    ? "border-pink-200 bg-pink-50 text-pink-700"
+                    : "border-slate-200 text-gray-600 hover:bg-slate-50 active:scale-[0.99]"
+                }`}
+              >
+                <Icon size={15} strokeWidth={2.2} />
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         <form onSubmit={handleLogin}>
