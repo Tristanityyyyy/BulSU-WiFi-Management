@@ -23,6 +23,11 @@ const PAGE_SIZE = 20;
 
 const humanize = (value) => (value || "").split("_").filter(Boolean).map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
 
+// The account number column holds a student number for students and an
+// employee ID for faculty/staff, so its header follows the role filter.
+const ID_COLUMN_LABELS = { student: "Student No.", faculty: "Faculty ID", staff: "Staff ID" };
+const idColumnLabel = (role) => ID_COLUMN_LABELS[role] || "Student No. / ID";
+
 const VIEWS = [
   { key: "active", label: "Active Users" },
   { key: "trash", label: "Trash" },
@@ -102,7 +107,7 @@ export default function AdminUsers() {
   const allOnPageSelected = userList.users.length > 0 && userList.users.every((u) => userList.selection.selected.has(u.id));
   const columns = [
     { render: () => <SelectAllHeader checked={allOnPageSelected} onChange={() => userList.selection.toggleAllOnPage(userList.users)} /> },
-    "Student No.", "Name", "Course/Section", "Enrollment", "Status", "Actions",
+    idColumnLabel(userList.filterRole), "Name", "Course/Section", "Enrollment", "Status", "Actions",
   ];
   const rows = userList.users.map((u) => {
     const courseLabel = courseMap[String(u.course_id)] || (u.course_id ? `#${u.course_id}` : "—");
@@ -176,7 +181,7 @@ export default function AdminUsers() {
   const trashAllOnPageSelected = trashList.trashUsers.length > 0 && trashList.trashUsers.every((u) => trashList.selection.selected.has(u.id));
   const trashColumns = [
     { render: () => <SelectAllHeader checked={trashAllOnPageSelected} onChange={() => trashList.selection.toggleAllOnPage(trashList.trashUsers)} /> },
-    "Student No.", "Name", "Role", "Deleted On", "Days Remaining", "Actions",
+    idColumnLabel(trashList.trashFilterRole), "Name", "Role", "Deleted On", "Days Remaining", "Actions",
   ];
   const trashRows = trashList.trashUsers.map((u) => (
     <>
