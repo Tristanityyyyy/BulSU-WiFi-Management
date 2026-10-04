@@ -8,21 +8,27 @@ const ACCOUNT_NUMBER_LENGTH = 10;
 const ACCOUNT_NUMBER_PATTERN = /^\d{10}$/;
 const ACCOUNT_NUMBER_MESSAGE = `Student number / ID must be exactly ${ACCOUNT_NUMBER_LENGTH} digits.`;
 
-// Roles the account/day-based data cap applies to. Guests have their own per-voucher
-// data_limit_gb mechanism (guestRoutes.js); admin has no client-facing usage
-// dashboard, so neither is metered or capped.
+// Staff queues are retained for bandwidth shaping and usage metering; only these
+// roles are subject to an account/day data cap.
 const CAPPED_ROLES = ["student", "faculty", "staff"];
+const DATA_CAPPED_ROLES = ["student", "faculty"];
+
+// Staff and admin sessions do not expire by elapsed connection time. Presence
+// disconnects and device-count policy remain separate controls.
+const UNLIMITED_SESSION_ROLES = ["staff", "admin"];
 
 // Per-role session window (minutes) used until an admin saves Settings → Network.
 // Shared because three places need the same fallback: login (which decides whether
 // an old session still holds a device slot), the dashboard countdown, and the
 // sweeper that actually ends a session once the window closes.
-const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240, staff: 240, admin: 240 };
+const DEFAULT_SESSION_TIMEOUT_MIN = { student: 120, faculty: 240 };
 
 module.exports = {
   TRASH_RETENTION_DAYS,
   DEFAULT_SESSION_TIMEOUT_MIN,
   CAPPED_ROLES,
+  DATA_CAPPED_ROLES,
+  UNLIMITED_SESSION_ROLES,
   ACCOUNT_NUMBER_LENGTH,
   ACCOUNT_NUMBER_PATTERN,
   ACCOUNT_NUMBER_MESSAGE,

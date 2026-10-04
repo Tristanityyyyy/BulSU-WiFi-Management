@@ -111,8 +111,13 @@ export default function AdminSessions() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const userCols = ["Name", "ID / Number", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status", "Reason", "Actions"];
-  const guestCols = ["Guest Name", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Status", "Actions"];
+  const userCols = ["Name", "ID / Number", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Data Used", "Status", "Reason", "Actions"];
+  const guestCols = ["Guest Name", "MAC Address", "IP Address", "Login", "Logout", "Duration", "Data Used", "Status", "Actions"];
+
+  const formatDataUsed = (bytes) => {
+    const mb = (Number(bytes) || 0) / (1024 * 1024);
+    return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`;
+  };
 
   const userRows = rows.map((s) => (
     <>
@@ -123,6 +128,7 @@ export default function AdminSessions() {
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{formatDataUsed(s.bytes_used)}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.logout_reason ?? "—"}</td>
       <td className="px-4 py-2">
@@ -159,6 +165,7 @@ export default function AdminSessions() {
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.login_time ? new Date(s.login_time).toLocaleString() : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{s.logout_time ? new Date(s.logout_time).toLocaleString() : "—"}</td>
       <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{s.duration_minutes != null ? `${s.duration_minutes} min` : "—"}</td>
+      <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">{formatDataUsed(s.bytes_used)}</td>
       <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
       <td className="px-4 py-2">
         {s.status === "active" ? (

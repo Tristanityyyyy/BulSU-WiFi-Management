@@ -135,10 +135,10 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
           <RoleTable
             icon={<Database size={16} />}
             title="Data Cap per Day"
-            hint="Data allowance per account, per day — 0 means unlimited. Guest allowance is per voucher, set below."
+            hint="Data allowance per account, per day. Staff and admin accounts have unlimited data; guest allowance is per voucher, set below."
             settings={settings}
             onChange={onChange}
-            roles={["student", "faculty", "staff"]}
+            roles={["student", "faculty"]}
             columns={[
               { key: "data_cap_gb", label: "Data Cap", unit: "GB", step: 0.1 },
             ]}
@@ -171,10 +171,10 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
           <RoleTable
             icon={<Timer size={16} />}
             title="Session Timeout"
-            hint="How long a session stays active before re-login. Guest vouchers carry their own window — set it on the Guest Access page."
+            hint="How long a session stays active before re-login. Staff and admin have no elapsed-time limit; guest vouchers carry their own window."
             settings={settings}
             onChange={onChange}
-            roles={["student", "faculty", "staff"]}
+            roles={["student", "faculty"]}
             columns={[
               { key: "session_timeout", label: "Timeout", type: "duration" },
             ]}

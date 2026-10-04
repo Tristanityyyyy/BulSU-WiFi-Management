@@ -21,6 +21,12 @@ const formatDuration = (mins) => {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 };
 
+const formatDataUsed = (bytes) => {
+  const used = Number(bytes) || 0;
+  const mb = used / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`;
+};
+
 const describeFilters = (query, extra = {}) => {
   const parts = [];
   if (query.date_from || query.date_to) parts.push(`${query.date_from || 'earliest'} to ${query.date_to || 'latest'}`);
@@ -52,7 +58,8 @@ router.get('/', async (req, res) => {
       SELECT s.id, COALESCE(u.full_name, '(Deleted User)') AS full_name,
              COALESCE(u.student_number, '—') AS student_number, u.role, s.mac_address, s.ip_address,
              s.login_time, s.logout_time, s.status, s.logout_reason,
-             TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes
+              TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes,
+              s.bytes_used
       FROM sessions s
       LEFT JOIN users u ON s.user_id = u.id
       ${where} ORDER BY s.login_time DESC LIMIT ? OFFSET ?
@@ -74,7 +81,8 @@ router.get('/export', async (req, res) => {
       SELECT COALESCE(u.student_number, '—') AS student_number, COALESCE(u.full_name, '(Deleted User)') AS full_name,
              u.role, s.mac_address, s.ip_address,
              s.login_time, s.logout_time, s.status, s.logout_reason,
-             TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes
+              TIMESTAMPDIFF(MINUTE, s.login_time, COALESCE(s.logout_time, NOW())) AS duration_minutes,
+              s.bytes_used
       FROM sessions s
       LEFT JOIN users u ON s.user_id = u.id
       ${where} ORDER BY s.login_time DESC
@@ -91,6 +99,7 @@ router.get('/export', async (req, res) => {
       { header: 'Login Time', width: 20, dateFormat: true, value: (r) => (r.login_time ? new Date(r.login_time) : null) },
       { header: 'Logout Time', width: 20, dateFormat: true, value: (r) => (r.logout_time ? new Date(r.logout_time) : null) },
       { header: 'Duration', width: 12, value: (r) => formatDuration(r.duration_minutes) },
+      { header: 'Data Used', width: 14, value: (r) => formatDataUsed(r.bytes_used) },
       { header: 'Status', key: 'status', width: 16, value: (r) => humanize(r.status) },
       { header: 'Logout Reason', width: 18, value: (r) => (r.logout_reason ? humanize(r.logout_reason) : '—') },
     ];
@@ -118,7 +127,8 @@ router.get('/guests', async (req, res) => {
     const [sessions] = await db.query(`
       SELECT gs.id, gs.guest_name, gs.mac_address, gs.ip_address,
              gs.login_time, gs.logout_time, gs.status,
-             TIMESTAMPDIFF(MINUTE, gs.login_time, COALESCE(gs.logout_time, NOW())) AS duration_minutes
+              TIMESTAMPDIFF(MINUTE, gs.login_time, COALESCE(gs.logout_time, NOW())) AS duration_minutes,
+              gs.bytes_used
       FROM guest_sessions gs
       ${where} ORDER BY gs.login_time DESC LIMIT ? OFFSET ?
     `, [...params, Number(limit), Number(offset)]);
@@ -136,7 +146,8 @@ router.get('/guests/export', async (req, res) => {
     const [rows] = await db.query(`
       SELECT gs.guest_name, gs.mac_address, gs.ip_address,
              gs.login_time, gs.logout_time, gs.status,
-             TIMESTAMPDIFF(MINUTE, gs.login_time, COALESCE(gs.logout_time, NOW())) AS duration_minutes
+              TIMESTAMPDIFF(MINUTE, gs.login_time, COALESCE(gs.logout_time, NOW())) AS duration_minutes,
+              gs.bytes_used
       FROM guest_sessions gs
       ${where} ORDER BY gs.login_time DESC
     `, params);
@@ -148,6 +159,7 @@ router.get('/guests/export', async (req, res) => {
       { header: 'Login Time', width: 20, dateFormat: true, value: (r) => (r.login_time ? new Date(r.login_time) : null) },
       { header: 'Logout Time', width: 20, dateFormat: true, value: (r) => (r.logout_time ? new Date(r.logout_time) : null) },
       { header: 'Duration', width: 12, value: (r) => formatDuration(r.duration_minutes) },
+      { header: 'Data Used', width: 14, value: (r) => formatDataUsed(r.bytes_used) },
       { header: 'Status', key: 'status', width: 16, value: (r) => humanize(r.status) },
     ];
 

@@ -36,7 +36,7 @@ function Fact({ icon: Icon, label, value }) {
 export default function WelcomeScreen({ fullName, role, policy = {}, onContinue }) {
   const name = greetingName(fullName);
   const roleLabel = ROLE_LABELS[role] || ROLE_LABELS.unknown;
-  const sessionLength = formatDuration(policy.sessionMinutes);
+  const sessionLength = policy.sessionMinutes == null ? "Unlimited" : formatDuration(policy.sessionMinutes);
   const maxDevices = Number(policy.maxDevices);
   const capGb = policy.dataCapGb == null ? null : Number(policy.dataCapGb);
 
@@ -62,7 +62,9 @@ export default function WelcomeScreen({ fullName, role, policy = {}, onContinue 
             <Fact
               icon={Clock}
               label="Session length"
-              value={`${sessionLength} per connection — just log in again to start a new one.`}
+              value={policy.sessionMinutes == null
+                ? "No elapsed-time limit while connected."
+                : `${sessionLength} per connection — just log in again to start a new one.`}
             />
           )}
           <Fact

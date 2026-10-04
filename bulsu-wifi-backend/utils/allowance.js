@@ -1,6 +1,6 @@
 const db = require("../db");
 const { getSettings } = require("./settings");
-const { CAPPED_ROLES } = require("./constants");
+const { DATA_CAPPED_ROLES } = require("./constants");
 const { activePriorityGrant, emergencyDataCapGb } = require("./emergency");
 
 // data_usage rows are keyed by CURDATE(), so an allowance resets at the database
@@ -21,7 +21,7 @@ function secondsUntilMidnight() {
 // over the cap, blocked or unenrolled all gate connecting, not looking, and
 // those are exactly the people who most need to see this number.
 async function getAllowance(user) {
-  const capSettings = CAPPED_ROLES.includes(user.role)
+  const capSettings = DATA_CAPPED_ROLES.includes(user.role)
     ? await getSettings([`data_cap_gb_${user.role}`])
     : {};
   const capGb = Number(capSettings[`data_cap_gb_${user.role}`]) || 0;
@@ -34,7 +34,7 @@ async function getAllowance(user) {
   //
   // `undefined` = no priority; `null` back from emergencyDataCapGb = no cutoff
   // at all, which is the same "unlimited" the 0 case below already renders.
-  const grant = CAPPED_ROLES.includes(user.role)
+  const grant = DATA_CAPPED_ROLES.includes(user.role)
     ? await activePriorityGrant(user.id)
     : undefined;
   const effectiveCapGb = grant === undefined ? capGb : emergencyDataCapGb(capGb, grant);

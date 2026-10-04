@@ -4,14 +4,14 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../db");
 const { verifyToken } = require("../middleware/auth");
-const { getSettings, getRoleBandwidth, getRoleBandwidthMap } = require("../utils/settings");
+const { getSettings, getRoleBandwidth, getRoleBandwidthMap, getRoleSessionMinutes, getRoleSessionMinutesMap } = require("../utils/settings");
 const { endSession } = require("../utils/sessions");
 const { grantAccess, readClientMac, isRouterAddress } = require("../utils/routeros");
 const { normalizeIp } = require("../utils/ip");
 
 // Fallback values used until the admin actually saves Settings at least once
 // (the `settings` table only ever holds keys that were explicitly saved).
-const { DEFAULT_SESSION_TIMEOUT_MIN, CAPPED_ROLES } = require("../utils/constants");
+const { CAPPED_ROLES, DATA_CAPPED_ROLES } = require("../utils/constants");
 const { getAllowance } = require("../utils/allowance");
 const { activePriorityGrant, emergencyDataCapGb, emergencyLimitsFor } = require("../utils/emergency");
 
@@ -72,7 +72,7 @@ router.post("/login", async (req, res) => {
     // grant before the next sweep notices. A cap of 0/unset means unlimited.
     let capGb = 0; // 0 = unlimited; the role's own figure, before any grant
     let effectiveCapGb = 0; // what this account is actually held to today; null = no cutoff
-    if (CAPPED_ROLES.includes(user.role)) {
+    if (DATA_CAPPED_ROLES.includes(user.role)) {
       const capSettings = await getSettings([`data_cap_gb_${user.role}`]);
       capGb = Number(capSettings[`data_cap_gb_${user.role}`]) || 0;
       // An emergency priority lifts the cap, so it must lift this gate by the
@@ -107,16 +107,17 @@ router.post("/login", async (req, res) => {
     // A session only counts against the limit while it's still within that role's
     // timeout window — past that it's stale and doesn't hold a slot, even if no
     // explicit disconnect ever happened.
-    const settings = await getSettings(["one_device_policy", `max_devices_${user.role}`, `session_timeout_${user.role}`]);
+    const settings = await getSettings(["one_device_policy", `max_devices_${user.role}`]);
     const onePolicy = settings.one_device_policy !== "false"; // defaults ON
     const maxDevices = onePolicy ? 1 : (Number(settings[`max_devices_${user.role}`]) || DEFAULT_MAX_DEVICES[user.role] || 1);
-    const timeoutMinutes = Number(settings[`session_timeout_${user.role}`]) || DEFAULT_SESSION_TIMEOUT_MIN[user.role] || 120;
+    const timeoutMinutes = await getRoleSessionMinutes(user.role);
 
-    const [[{ activeCount }]] = await db.query(
-      `SELECT COUNT(*) AS activeCount FROM sessions
-       WHERE user_id=? AND status='active' AND login_time > NOW() - INTERVAL ? MINUTE`,
-      [user.id, timeoutMinutes]
-    );
+    const activeCountQuery = timeoutMinutes == null
+      ? `SELECT COUNT(*) AS activeCount FROM sessions WHERE user_id=? AND status='active'`
+      : `SELECT COUNT(*) AS activeCount FROM sessions
+         WHERE user_id=? AND status='active' AND login_time > NOW() - INTERVAL ? MINUTE`;
+    const activeCountParams = timeoutMinutes == null ? [user.id] : [user.id, timeoutMinutes];
+    const [[{ activeCount }]] = await db.query(activeCountQuery, activeCountParams);
     if (activeCount >= maxDevices) {
       if (maxDevices === 1) {
         // Single-device roles: logging in from a new device switches the account
@@ -225,13 +226,13 @@ router.post("/login", async (req, res) => {
 router.get("/policy", async (req, res) => {
   try {
     const bandwidth = await getRoleBandwidthMap(CAPPED_ROLES);
-    const settings = await getSettings([
-      "one_device_policy",
-      ...CAPPED_ROLES.flatMap((role) => [
-        `data_cap_gb_${role}`,
-        `session_timeout_${role}`,
-        `max_devices_${role}`,
+    const [settings, sessionMinutesByRole] = await Promise.all([
+      getSettings([
+        "one_device_policy",
+        ...DATA_CAPPED_ROLES.map((role) => `data_cap_gb_${role}`),
+        ...CAPPED_ROLES.map((role) => `max_devices_${role}`),
       ]),
+      getRoleSessionMinutesMap(CAPPED_ROLES),
     ]);
     // Same rule login applies: the one-device policy overrides the per-role
     // number rather than sitting beside it, so resolve it here instead of
@@ -240,15 +241,12 @@ router.get("/policy", async (req, res) => {
 
     res.json({
       roles: CAPPED_ROLES.map((role) => {
-        const capGb = Number(settings[`data_cap_gb_${role}`]);
-        const timeout = Number(settings[`session_timeout_${role}`]);
+        const capGb = DATA_CAPPED_ROLES.includes(role) ? Number(settings[`data_cap_gb_${role}`]) : 0;
         const devices = Number(settings[`max_devices_${role}`]);
         return {
           role,
           dataCapGb: Number.isFinite(capGb) && capGb > 0 ? capGb : null, // null = unlimited
-          sessionMinutes: Number.isFinite(timeout) && timeout > 0
-            ? timeout
-            : DEFAULT_SESSION_TIMEOUT_MIN[role],
+          sessionMinutes: sessionMinutesByRole[role],
           maxDevices: onePolicy
             ? 1
             : (Number.isFinite(devices) && devices > 0 ? devices : DEFAULT_MAX_DEVICES[role] || 1),

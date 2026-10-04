@@ -1,5 +1,5 @@
 const db = require('../db');
-const { DEFAULT_SESSION_TIMEOUT_MIN } = require('./constants');
+const { DEFAULT_SESSION_TIMEOUT_MIN, UNLIMITED_SESSION_ROLES } = require('./constants');
 
 // Looks up specific keys from the generic settings table, returning only what's
 // actually stored — callers apply their own defaults for missing keys.
@@ -50,14 +50,18 @@ async function getRoleBandwidth(role) {
   return (await getRoleBandwidthMap([role]))[role];
 }
 
-// Session window in minutes for every role in `roles`, in a single query. A
-// stored 0 (or blank, or junk) falls back to the default rather than meaning
-// "expire immediately" — which is how login and the session sweeper have always
-// read it, and now how the dashboard countdown reads it too.
+// Session window in minutes for every role in `roles`, in a single query. Null
+// means no elapsed-time limit; for timed roles, stored 0/blank/junk falls back
+// to the default rather than meaning "expire immediately".
 async function getRoleSessionMinutesMap(roles) {
-  const stored = await getSettings(roles.map((role) => `session_timeout_${role}`));
+  const timedRoles = roles.filter((role) => !UNLIMITED_SESSION_ROLES.includes(role));
+  const stored = await getSettings(timedRoles.map((role) => `session_timeout_${role}`));
   const map = {};
   for (const role of roles) {
+    if (UNLIMITED_SESSION_ROLES.includes(role)) {
+      map[role] = null;
+      continue;
+    }
     const configured = Number(stored[`session_timeout_${role}`]);
     map[role] = Number.isFinite(configured) && configured > 0
       ? configured

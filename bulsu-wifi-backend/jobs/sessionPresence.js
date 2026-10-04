@@ -117,6 +117,7 @@ async function sweepTimedOutSessions() {
   let ended = 0;
   for (const row of rows) {
     const minutes = windows[row.role || "student"];
+    if (minutes == null) continue;
     if (Date.now() - new Date(row.login_time).getTime() < minutes * 60 * 1000) continue;
     if (await endSession(row.id, { reason: "timeout", status: "timeout" })) ended++;
   }

@@ -101,7 +101,7 @@ router.get("/me", async (req, res) => {
       // Masked: enough for the holder to recognise their own account, not enough
       // to identify them to whoever picks up this address next.
       username: maskAccountNumber(session.student_number),
-      expiresInSec: Math.max(0, timeoutMinutes * 60 - elapsedSec),
+      expiresInSec: timeoutMinutes == null ? null : Math.max(0, timeoutMinutes * 60 - elapsedSec),
       recognizedDevice: true,
       ...(await getAllowance({ id: session.user_id, role: session.role })),
     });
@@ -168,7 +168,7 @@ router.get("/status", verifyToken, async (req, res) => {
 
     res.json({
       username: user.student_number,
-      expiresInSec: Math.max(0, timeoutMinutes * 60 - elapsedSec),
+      expiresInSec: timeoutMinutes == null ? null : Math.max(0, timeoutMinutes * 60 - elapsedSec),
       dataUsedMB,
       dataLimitMB,
       lowDataMB,

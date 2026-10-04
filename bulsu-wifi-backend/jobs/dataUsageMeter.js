@@ -2,7 +2,7 @@ const db = require("../db");
 const { getSettings, getRoleBandwidthMap } = require("../utils/settings");
 const { readQueueState, setQueueLimit, grantAccess, queueMatchesLimits, ENABLED } = require("../utils/routeros");
 const { endSession, endGuestSession } = require("../utils/sessions");
-const { CAPPED_ROLES } = require("../utils/constants");
+const { CAPPED_ROLES, DATA_CAPPED_ROLES } = require("../utils/constants");
 const { emergencyLimitsFor, emergencyDataCapGb, getActivePriorities } = require("../utils/emergency");
 
 const GB = 1024 * 1024 * 1024;
@@ -60,12 +60,12 @@ async function meterActiveQueues(bandwidth, priorities) {
          ON DUPLICATE KEY UPDATE bytes_used = bytes_used + VALUES(bytes_used)`,
         [row.user_id, delta]
       );
+      await db.query("UPDATE sessions SET bytes_used=bytes_used+?, last_seen=NOW() WHERE id=?", [delta, row.session_id]);
     }
     await db.query("UPDATE active_queues SET last_bytes=? WHERE session_id=?", [bytes, row.session_id]);
-    // Bytes moved => the device is demonstrably still here. Refreshing last_seen
-    // from traffic as well as from the router's presence tables means an actively
-    // used session can never be swept as "departed" by a presence read that missed it.
-    if (delta > 0) await db.query("UPDATE sessions SET last_seen=NOW() WHERE id=?", [row.session_id]);
+    // Meter bytes per session as well as per account/day so the admin session log
+    // can report this session's own total, including when the account has devices
+    // connected at the same time. Bytes moved also prove the device is still present.
   }
 }
 
@@ -76,12 +76,12 @@ async function enforceDailyCaps(priorities) {
   const [overUsers] = await db.query(
     `SELECT du.user_id, du.bytes_used, u.role
      FROM data_usage du JOIN users u ON u.id = du.user_id
-     WHERE du.usage_date = CURDATE() AND u.role IN (?, ?, ?)`,
-    CAPPED_ROLES
+     WHERE du.usage_date = CURDATE() AND u.role IN (${DATA_CAPPED_ROLES.map(() => "?").join(", ")})`,
+    DATA_CAPPED_ROLES
   );
   if (!overUsers.length) return;
 
-  const caps = await getSettings(CAPPED_ROLES.map((r) => `data_cap_gb_${r}`));
+  const caps = await getSettings(DATA_CAPPED_ROLES.map((r) => `data_cap_gb_${r}`));
   for (const u of overUsers) {
     const roleCapGb = Number(caps[`data_cap_gb_${u.role}`]);
 

@@ -298,9 +298,9 @@ export default function SessionDashboard() {
         </div>
 
         <div className={`rounded-2xl border px-4 py-3 mb-6 text-center ${isLowTime ? "bg-red-50 border-red-200" : "bg-pink-50/60 border-pink-100"}`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Time remaining</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Session time</p>
           <p className={`text-3xl font-bold font-mono tabular-nums ${isLowTime ? "text-red-700" : "text-wine-800"}`}>
-            {formatTime(secondsLeft)}
+            {secondsLeft == null ? "Unlimited" : formatTime(secondsLeft)}
           </p>
           {isLowTime && (
             <p className="text-[11px] text-red-500 mt-1">You'll be disconnected when this reaches zero.</p>

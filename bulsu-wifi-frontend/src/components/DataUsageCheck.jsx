@@ -199,11 +199,13 @@ export default function DataUsageCheck() {
                 <dd className="font-semibold text-wine-800 tabular-nums">{formatReset(usage.resetsInSec)}</dd>
               </div>
             )}
-            {usage.expiresInSec != null && (
+            {usage.expiresInSec !== undefined && (
               <div className="flex justify-between py-1">
                 <dt className="text-gray-500">Session ends</dt>
                 <dd className="font-semibold text-wine-800 tabular-nums">
-                  {usage.expiresInSec > 0 ? `in ${formatRemaining(usage.expiresInSec)}` : "now"}
+                  {usage.expiresInSec == null
+                    ? "Unlimited"
+                    : usage.expiresInSec > 0 ? `in ${formatRemaining(usage.expiresInSec)}` : "now"}
                 </dd>
               </div>
             )}

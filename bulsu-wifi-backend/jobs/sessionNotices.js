@@ -1,6 +1,6 @@
 const db = require("../db");
 const { getSettings, getRoleSessionMinutesMap } = require("../utils/settings");
-const { CAPPED_ROLES } = require("../utils/constants");
+const { DATA_CAPPED_ROLES } = require("../utils/constants");
 const { getActivePriorities, emergencyDataCapGb } = require("../utils/emergency");
 
 const MB = 1024 * 1024;
@@ -49,7 +49,7 @@ async function sweepSessionNotices() {
   if (!rows.length) return { sent: 0 };
 
   const windows = await getRoleSessionMinutesMap([...new Set(rows.map((r) => r.role))]);
-  const caps = await getSettings(CAPPED_ROLES.map((role) => `data_cap_gb_${role}`));
+  const caps = await getSettings(DATA_CAPPED_ROLES.map((role) => `data_cap_gb_${role}`));
   // Emergency grants, so the warning below measures against the cutoff actually
   // in force. An account whose cap has been waived outright has nothing to run
   // out of and is not warned; one holding a measured grant still has a real
@@ -74,7 +74,7 @@ async function sweepSessionNotices() {
 
   const pending = [];
   for (const row of rows) {
-    if (lowTimeMin > 0 && !sessionWarned.has(row.session_id)) {
+    if (windows[row.role] != null && lowTimeMin > 0 && !sessionWarned.has(row.session_id)) {
       const minutesLeft =
         windows[row.role] - (Date.now() - new Date(row.login_time).getTime()) / 60000;
       // Past zero the sweeper is already ending the session, and a warning
@@ -90,7 +90,7 @@ async function sweepSessionNotices() {
       }
     }
 
-    if (lowDataMB > 0 && !userWarned.has(row.user_id)) {
+    if (DATA_CAPPED_ROLES.includes(row.role) && lowDataMB > 0 && !userWarned.has(row.user_id)) {
       // Warn against the cutoff actually in force, which for a prioritised
       // account is its role cap plus whatever was granted. This used to skip
       // anyone holding a priority outright — correct while every priority waived
