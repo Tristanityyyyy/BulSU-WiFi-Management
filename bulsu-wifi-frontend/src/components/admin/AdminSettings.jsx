@@ -115,7 +115,7 @@ export default function AdminSettings() {
   // admin answers it. These settings change what every account on the network
   // is allowed to do, so they don't get applied on a stray Enter keypress.
   const handleSubmit = (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     setConfirmSave(true);
   };
 
@@ -159,7 +159,7 @@ export default function AdminSettings() {
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Unsaved changes
               </span>
             )}
-            <button type="submit" form="settings-form" disabled={saving || !dirty}
+            <button type="button" onClick={handleSubmit} disabled={saving || !dirty}
               className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white rounded-xl px-4 py-2 text-xs font-semibold shadow-md shadow-pink-200 dark:shadow-none disabled:opacity-50 disabled:shadow-none transition">
               <Save size={14} />
               {saving ? "Saving…" : "Save Settings"}
@@ -244,7 +244,7 @@ export default function AdminSettings() {
       {confirmSave && (
         <ConfirmDialog
           title="Save these settings?"
-          message="The new limits take effect for sessions started from now on. Sessions already running keep the limits they were given at login."
+          message="These saved settings take effect where applicable. Network limits apply to new sessions; existing sessions keep the limits they were given at login."
           confirmLabel="Save Settings"
           danger={false}
           onConfirm={handleSave}
