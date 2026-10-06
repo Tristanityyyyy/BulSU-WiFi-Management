@@ -9,14 +9,17 @@ import Button from "./ui/Button";
 import { API_BASE } from "../config/api";
 
 const inputClass = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition";
+const ACCOUNT_ROLES = ["student", "faculty", "staff"];
 
 export default function RegistrationPage() {
   const [catalog, setCatalog] = useState({ courses: [], sections: [] });
   const [form, setForm] = useState({
+    role: "",
     student_number: "",
     last_name: "",
     first_name: "",
     middle_initial: "",
+    email: "",
     birthdate: "",
     course_id: "",
     year_level: "",
@@ -24,6 +27,7 @@ export default function RegistrationPage() {
   });
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -32,7 +36,7 @@ export default function RegistrationPage() {
     let cancelled = false;
     axios.get(`${API_BASE}/auth/registration-options`)
       .then((res) => { if (!cancelled) setCatalog(res.data); })
-      .catch(() => { if (!cancelled) setError("Unable to load courses right now. Please try again later."); })
+      .catch(() => { if (!cancelled) setCatalogError("Unable to load courses right now. Please try again later."); })
       .finally(() => { if (!cancelled) setLoadingOptions(false); });
     return () => { cancelled = true; };
   }, []);
@@ -48,8 +52,12 @@ export default function RegistrationPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
+    if (!ACCOUNT_ROLES.includes(form.role)) {
+      setError("Select an account role.");
+      return;
+    }
     if (form.student_number.length !== 10) {
-      setError("Student number must be exactly 10 digits.");
+      setError("Student number or ID must be exactly 10 digits.");
       return;
     }
     if (!policyAccepted) {
@@ -59,13 +67,16 @@ export default function RegistrationPage() {
     setSubmitting(true);
     try {
       const fullName = `${form.last_name.trim()}, ${form.first_name.trim()}${form.middle_initial.trim() ? ` ${form.middle_initial.trim()}` : ""}`;
+      const isStudent = form.role === "student";
       const payload = {
+        role: form.role,
         student_number: form.student_number,
         full_name: fullName,
+        email: form.email,
         birthdate: form.birthdate,
-        course_id: form.course_id,
-        year_level: form.year_level,
-        section_id: form.section_id,
+        course_id: isStudent ? form.course_id : null,
+        year_level: isStudent ? form.year_level : null,
+        section_id: isStudent ? form.section_id : null,
         accepted_terms: policyAccepted,
       };
       const response = await axios.post(`${API_BASE}/auth/register`, payload);
@@ -80,16 +91,12 @@ export default function RegistrationPage() {
   return (
     <PageBackground>
       <Card>
-        <BulsuHeader subtitle="Create a student account" />
+        <BulsuHeader subtitle="Request a BulSU Wi-Fi account" />
         {success ? (
           <div className="text-center">
             <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl p-3 mb-5">{success}</p>
             <p className="text-sm text-gray-600 mb-5">
-              After approval, sign in with your student number and temporary password:
-              <span className="block font-mono font-semibold text-gray-800 mt-1">
-                {form.last_name.trim()}{form.birthdate.replace(/-/g, "")}
-              </span>
-              You will be asked to change it when you first log in.
+              If approved, your login ID and temporary password will be sent to {form.email}. You will be asked to change the password at first login.
             </p>
             <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-pink-600 hover:text-pink-700">
               <ArrowLeft size={15} /> Back to login
@@ -100,10 +107,21 @@ export default function RegistrationPage() {
             {error && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">{error}</p>}
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
-                <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Student Number</label>
+                <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Account Role</label>
+                <select value={form.role}
+                  onChange={(event) => setForm((current) => ({ ...current, role: event.target.value, course_id: "", year_level: "", section_id: "" }))}
+                  className={inputClass} required>
+                  <option value="">Select role</option>
+                  {ACCOUNT_ROLES.map((role) => <option key={role} value={role}>{role[0].toUpperCase() + role.slice(1)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">
+                  {form.role === "faculty" ? "Faculty ID" : form.role === "staff" ? "Staff ID" : "Student Number"}
+                </label>
                 <input type="text" inputMode="numeric" autoComplete="off" maxLength={10} value={form.student_number}
                   onChange={(event) => update("student_number", event.target.value.replace(/\D/g, "").slice(0, 10))}
-                  placeholder="10-digit student number" className={`${inputClass} font-mono`} required />
+                  placeholder="10-digit account ID" className={`${inputClass} font-mono`} required />
               </div>
               <div>
                 <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Last Name</label>
@@ -123,29 +141,39 @@ export default function RegistrationPage() {
                 </div>
               </div>
               <div>
-                <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Course</label>
-                <select value={form.course_id} onChange={(event) => setForm((current) => ({ ...current, course_id: event.target.value, year_level: "", section_id: "" }))}
-                  className={inputClass} required disabled={loadingOptions || catalog.courses.length === 0}>
-                  <option value="">{loadingOptions ? "Loading courses..." : "Select course"}</option>
-                  {catalog.courses.map((course) => <option key={course.id} value={course.id}>{course.code || course.name} - {course.name}</option>)}
-                </select>
+                <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Email Address</label>
+                <input type="email" autoComplete="email" value={form.email} onChange={(event) => update("email", event.target.value)}
+                  placeholder="you@example.com" className={inputClass} maxLength={254} required />
               </div>
-              <div>
-                <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Year Level</label>
-                <select value={form.year_level} onChange={(event) => setForm((current) => ({ ...current, year_level: event.target.value, section_id: "" }))}
-                  className={inputClass} required disabled={!form.course_id}>
-                  <option value="">Select year</option>
-                  {availableYears.map((year) => <option key={year} value={year}>Year {year}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Section</label>
-                <select value={form.section_id} onChange={(event) => update("section_id", event.target.value)}
-                  className={inputClass} required disabled={!form.year_level}>
-                  <option value="">Select section</option>
-                  {yearSections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
-                </select>
-              </div>
+              {form.role === "student" && (
+                <>
+                  <div>
+                    <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Course</label>
+                    <select value={form.course_id} onChange={(event) => setForm((current) => ({ ...current, course_id: event.target.value, year_level: "", section_id: "" }))}
+                      className={inputClass} required disabled={loadingOptions || catalog.courses.length === 0}>
+                      <option value="">{loadingOptions ? "Loading courses..." : "Select course"}</option>
+                      {catalog.courses.map((course) => <option key={course.id} value={course.id}>{course.code || course.name} - {course.name}</option>)}
+                    </select>
+                    {catalogError && <p className="text-xs text-red-600 mt-1">{catalogError}</p>}
+                  </div>
+                  <div>
+                    <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Year Level</label>
+                    <select value={form.year_level} onChange={(event) => setForm((current) => ({ ...current, year_level: event.target.value, section_id: "" }))}
+                      className={inputClass} required disabled={!form.course_id}>
+                      <option value="">Select year</option>
+                      {availableYears.map((year) => <option key={year} value={year}>Year {year}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Section</label>
+                    <select value={form.section_id} onChange={(event) => update("section_id", event.target.value)}
+                      className={inputClass} required disabled={!form.year_level}>
+                      <option value="">Select section</option>
+                      {yearSections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
               <div>
                 <label className="text-xs sm:text-sm font-medium text-gray-600 block mb-1">Birthday</label>
                 <input type="date" value={form.birthdate} onChange={(event) => update("birthdate", event.target.value)}
@@ -157,7 +185,7 @@ export default function RegistrationPage() {
                   className="mt-0.5 accent-pink-600" required />
                 <span>I agree to the Terms and BulSU Acceptable Use Policy.</span>
               </label>
-              <Button type="submit" disabled={submitting || loadingOptions || catalog.courses.length === 0 || !policyAccepted}>
+              <Button type="submit" disabled={submitting || !form.role || (form.role === "student" && (loadingOptions || catalog.courses.length === 0)) || !policyAccepted}>
                 <span className="inline-flex items-center justify-center gap-2"><UserPlus size={16} />{submitting ? "Submitting..." : "Submit registration"}</span>
               </Button>
             </form>

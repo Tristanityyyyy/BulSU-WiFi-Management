@@ -15,7 +15,6 @@ const { CAPPED_ROLES, DATA_CAPPED_ROLES } = require("../utils/constants");
 const { getAllowance } = require("../utils/allowance");
 const { activePriorityGrant, emergencyDataCapGb, emergencyLimitsFor } = require("../utils/emergency");
 const { ACCOUNT_NUMBER_PATTERN, ACCOUNT_NUMBER_MESSAGE } = require("../utils/constants");
-const { derivePassword } = require("../utils/derivePassword");
 
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
 
@@ -52,33 +51,45 @@ router.get("/registration-options", async (req, res) => {
 
 // POST /api/auth/register — submissions stay requests until an administrator approves them.
 router.post("/register", async (req, res) => {
-  const { student_number, full_name, birthdate, course_id, year_level, section_id, accepted_terms } = req.body;
+  const {
+    student_number, full_name, email, role, birthdate,
+    course_id, year_level, section_id, accepted_terms,
+  } = req.body;
   const studentNumber = String(student_number || "").trim();
   const name = String(full_name || "").trim();
+  const contactEmail = String(email || "").trim().toLowerCase();
+  const accountRole = String(role || "").trim().toLowerCase();
   const birthDate = String(birthdate || "").trim();
-  const courseId = Number(course_id);
-  const sectionId = Number(section_id);
-  const yearLevel = Number(year_level);
+  const isStudent = accountRole === "student";
+  const courseId = isStudent ? Number(course_id) : null;
+  const sectionId = isStudent ? Number(section_id) : null;
+  const yearLevel = isStudent ? Number(year_level) : null;
 
   if (accepted_terms !== true)
     return res.status(400).json({ message: "Accept the Terms and Policy before creating an account." });
+  if (!["student", "faculty", "staff"].includes(accountRole))
+    return res.status(400).json({ message: "Select student, faculty, or staff as the account role." });
   if (!ACCOUNT_NUMBER_PATTERN.test(studentNumber))
     return res.status(400).json({ message: ACCOUNT_NUMBER_MESSAGE });
+  if (contactEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail))
+    return res.status(400).json({ message: "Enter a valid email address." });
   if (!name || name.length > 255)
     return res.status(400).json({ message: "Enter your full name (up to 255 characters)." });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(Date.parse(`${birthDate}T00:00:00Z`)) || new Date(`${birthDate}T00:00:00Z`).toISOString().slice(0, 10) !== birthDate || birthDate > new Date().toISOString().slice(0, 10))
     return res.status(400).json({ message: "Enter a valid birth date." });
-  if (!Number.isInteger(courseId) || courseId < 1 || !Number.isInteger(sectionId) || sectionId < 1 || !Number.isInteger(yearLevel) || yearLevel < 1)
+  if (isStudent && (!Number.isInteger(courseId) || courseId < 1 || !Number.isInteger(sectionId) || sectionId < 1 || !Number.isInteger(yearLevel) || yearLevel < 1))
     return res.status(400).json({ message: "Select a valid course, year, and section." });
   try {
-    const [[section]] = await db.query(
-      `SELECT s.id, s.name, s.year_level FROM sections s JOIN courses c ON c.id = s.course_id
-        WHERE s.id = ? AND s.course_id = ?
-          AND s.status = 'active' AND c.status = 'active' LIMIT 1`,
-      [sectionId, courseId]
-    );
-    if (!section || sectionYearLevel(section) !== yearLevel)
-      return res.status(400).json({ message: "That course, year, and section is no longer available." });
+    if (isStudent) {
+      const [[section]] = await db.query(
+        `SELECT s.id, s.name, s.year_level FROM sections s JOIN courses c ON c.id = s.course_id
+          WHERE s.id = ? AND s.course_id = ?
+            AND s.status = 'active' AND c.status = 'active' LIMIT 1`,
+        [sectionId, courseId]
+      );
+      if (!section || sectionYearLevel(section) !== yearLevel)
+        return res.status(400).json({ message: "That course, year, and section is no longer available." });
+    }
 
     const [[existingUser]] = await db.query(
       "SELECT id FROM users WHERE student_number = ? LIMIT 1",
@@ -93,24 +104,18 @@ router.post("/register", async (req, res) => {
     if (existingRequest)
       return res.status(409).json({ message: "A registration request for this student number is already pending." });
 
-    const initialPassword = derivePassword({
-      birth_date: birthDate,
-      full_name: name,
-      student_number: studentNumber,
-    });
-    const passwordHash = await bcrypt.hash(initialPassword, 10);
     await db.query(
       `INSERT INTO registration_requests
-        (student_number, full_name, birth_date, course_id, section_id, year_level, password_hash,
-          accepted_terms_at, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', NOW())`,
-      [studentNumber, name, birthDate, courseId, sectionId, yearLevel, passwordHash]
+        (student_number, full_name, email, role, birth_date, course_id, section_id,
+         year_level, accepted_terms_at, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', NOW())`,
+      [studentNumber, name, contactEmail, accountRole, birthDate, courseId, sectionId, yearLevel]
     );
-    res.status(201).json({ message: "Registration submitted. An administrator must approve your account before you can log in." });
+    res.status(201).json({ message: `Request submitted. Your login ID and temporary password will be emailed to ${contactEmail} after approval.` });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY")
       return res.status(409).json({ message: "That student number is already registered." });
-    if (err.code === "ER_NO_SUCH_TABLE")
+    if (err.code === "ER_NO_SUCH_TABLE" || err.code === "ER_BAD_FIELD_ERROR")
       return res.status(503).json({ message: "Registration requests are not available yet. Please contact an administrator." });
     res.status(500).json({ message: "Unable to submit registration." });
   }
