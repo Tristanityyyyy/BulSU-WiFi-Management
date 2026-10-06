@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 async function sendRegistrationApproval({ email, fullName, role, accountId, temporaryPassword }) {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
-  const password = process.env.SMTP_PASSWORD;
+  const password = (process.env.SMTP_PASSWORD || '').replace(/\s+/g, '');
   if (!host) throw new Error('SMTP_HOST is not configured.');
   if (Boolean(user) !== Boolean(password))
     throw new Error('Configure both SMTP_USER and SMTP_PASSWORD, or neither for an unauthenticated relay.');
