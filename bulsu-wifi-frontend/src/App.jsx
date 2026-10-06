@@ -1,5 +1,6 @@
 import { Route, Routes, Navigate } from 'react-router-dom'
 import LoginPage from './components/LoginPage'
+import RegistrationPage from './components/RegistrationPage'
 import GuestVerify from './components/GuestVerify'
 import DataUsageCheck from './components/DataUsageCheck'
 import SessionDashboard from './components/Sessiondashboard'
@@ -9,6 +10,7 @@ import ProtectedRoute from './components/admin/ProtectedRoute'
 import { ThemeProvider } from './theme'
 import AdminOverview from './components/admin/AdminOverview'
 import AdminUsers from './components/admin/AdminUsers'
+import AdminRegistrations from './components/admin/AdminRegistrations'
 import AdminSessions from './components/admin/AdminSessions'
 import AdminGuests from './components/admin/AdminGuests'
 import AdminEmergency from './components/admin/AdminEmergency'
@@ -23,6 +25,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LoginPage />} />
+      <Route path="/register" element={<RegistrationPage />} />
       <Route path="/guest" element={<GuestVerify />} />
       <Route path="/usage" element={<DataUsageCheck />} />
       <Route path="/dashboard" element={<SessionDashboard />} />
@@ -31,6 +34,7 @@ function App() {
         <Route index element={<Navigate to="/admin/overview" replace />} />
         <Route path="overview" element={<AdminOverview />} />
         <Route path="users" element={<AdminUsers />} />
+        <Route path="registrations" element={<AdminRegistrations />} />
         <Route path="sessions" element={<AdminSessions />} />
         <Route path="guests" element={<AdminGuests />} />
         {/* Kept mounted so an old bookmark lands somewhere sensible rather than

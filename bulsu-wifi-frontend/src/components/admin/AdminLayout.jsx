@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Users, Radio, KeyRound,
+  LayoutDashboard, Users, UserRoundPlus, Radio, KeyRound,
   Siren, MessageSquare, Bell, Settings, LogOut, Sun, Moon, ScrollText,
 } from "lucide-react";
 import { useTheme } from "../../theme";
@@ -22,6 +22,7 @@ const NAV_GROUPS = [
     label: "People",
     items: [
       { to: "/admin/users", label: "Users", Icon: Users },
+      { to: "/admin/registrations", label: "Registrations", Icon: UserRoundPlus },
       { to: "/admin/guests", label: "Guest Access", Icon: KeyRound },
     ],
   },

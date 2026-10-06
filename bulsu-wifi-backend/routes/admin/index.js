@@ -5,6 +5,7 @@ router.use(verifyToken, requireAdmin);
 
 router.use('/overview',      require('./overview'));
 router.use('/users',         require('./users'));
+router.use('/registrations', require('./registrations'));
 router.use('/sessions',      require('./sessions'));
 router.use('/guests',        require('./guests'));
 router.use('/emergency',     require('./emergency'));

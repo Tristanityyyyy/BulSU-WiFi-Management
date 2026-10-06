@@ -8,6 +8,8 @@ const ACTIONS = {
   UNBLOCKED: "UNBLOCKED",
   RESTORE: "RESTORE",
   RESET_PASSWORD: "RESET_PASSWORD",
+  REGISTRATION_APPROVED: "REGISTRATION_APPROVED",
+  REGISTRATION_DENIED: "REGISTRATION_DENIED",
 };
 
 async function logAudit(req, { action, target_type = null, target_name = null, description, metadata = null }) {

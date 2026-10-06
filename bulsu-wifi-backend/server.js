@@ -19,8 +19,23 @@ const { getUplinkTotalMbps } = require("./utils/settings");
 
 const app = express();
 
-const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173,http://192.168.88.5:5173").split(",");
-app.use(cors({ origin: allowedOrigins }));
+const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173,http://192.168.88.5:5173")
+  .split(",")
+  .map((origin) => origin.trim());
+const isLocalDevelopmentOrigin = (origin) => {
+  if (process.env.NODE_ENV === "production" || !origin) return false;
+  try {
+    const url = new URL(origin);
+    return url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+};
+app.use(cors({
+  origin: (origin, callback) => {
+    callback(null, !origin || allowedOrigins.includes(origin) || isLocalDevelopmentOrigin(origin));
+  },
+}));
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);

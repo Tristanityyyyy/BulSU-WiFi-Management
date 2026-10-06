@@ -14,8 +14,107 @@ const { normalizeIp } = require("../utils/ip");
 const { CAPPED_ROLES, DATA_CAPPED_ROLES } = require("../utils/constants");
 const { getAllowance } = require("../utils/allowance");
 const { activePriorityGrant, emergencyDataCapGb, emergencyLimitsFor } = require("../utils/emergency");
+const { ACCOUNT_NUMBER_PATTERN, ACCOUNT_NUMBER_MESSAGE } = require("../utils/constants");
+const { derivePassword } = require("../utils/derivePassword");
 
 const DEFAULT_MAX_DEVICES = { student: 2, faculty: 3, staff: 3, admin: 5 };
+
+const sectionYearLevel = (section) => {
+  const storedYear = Number(section.year_level);
+  if (Number.isInteger(storedYear) && storedYear > 0) return storedYear;
+  const prefix = String(section.name || "").match(/^(\d+)/)?.[1];
+  return prefix ? Number(prefix) : 0;
+};
+
+// GET /api/auth/registration-options — public signup choices, limited to the
+// active course/section catalog so archived programs cannot receive new users.
+router.get("/registration-options", async (req, res) => {
+  try {
+    const [[catalogCourses], [catalogSections]] = await Promise.all([
+      db.query("SELECT id, code, name FROM courses WHERE status = 'active' ORDER BY code, name"),
+      db.query(
+        `SELECT s.id, s.course_id, s.name, s.year_level
+         FROM sections s JOIN courses c ON c.id = s.course_id
+        WHERE s.status = 'active' AND c.status = 'active'
+        ORDER BY s.course_id, s.year_level, s.name`
+      ),
+    ]);
+    const sections = catalogSections
+      .map((section) => ({ ...section, year_level: sectionYearLevel(section) }))
+      .filter((section) => section.year_level > 0);
+    const coursesWithSections = new Set(sections.map((section) => Number(section.course_id)));
+    const courses = catalogCourses.filter((course) => coursesWithSections.has(Number(course.id)));
+    res.json({ courses, sections });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load registration options." });
+  }
+});
+
+// POST /api/auth/register — submissions stay requests until an administrator approves them.
+router.post("/register", async (req, res) => {
+  const { student_number, full_name, birthdate, course_id, year_level, section_id, accepted_terms } = req.body;
+  const studentNumber = String(student_number || "").trim();
+  const name = String(full_name || "").trim();
+  const birthDate = String(birthdate || "").trim();
+  const courseId = Number(course_id);
+  const sectionId = Number(section_id);
+  const yearLevel = Number(year_level);
+
+  if (accepted_terms !== true)
+    return res.status(400).json({ message: "Accept the Terms and Policy before creating an account." });
+  if (!ACCOUNT_NUMBER_PATTERN.test(studentNumber))
+    return res.status(400).json({ message: ACCOUNT_NUMBER_MESSAGE });
+  if (!name || name.length > 255)
+    return res.status(400).json({ message: "Enter your full name (up to 255 characters)." });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(Date.parse(`${birthDate}T00:00:00Z`)) || new Date(`${birthDate}T00:00:00Z`).toISOString().slice(0, 10) !== birthDate || birthDate > new Date().toISOString().slice(0, 10))
+    return res.status(400).json({ message: "Enter a valid birth date." });
+  if (!Number.isInteger(courseId) || courseId < 1 || !Number.isInteger(sectionId) || sectionId < 1 || !Number.isInteger(yearLevel) || yearLevel < 1)
+    return res.status(400).json({ message: "Select a valid course, year, and section." });
+  try {
+    const [[section]] = await db.query(
+      `SELECT s.id, s.name, s.year_level FROM sections s JOIN courses c ON c.id = s.course_id
+        WHERE s.id = ? AND s.course_id = ?
+          AND s.status = 'active' AND c.status = 'active' LIMIT 1`,
+      [sectionId, courseId]
+    );
+    if (!section || sectionYearLevel(section) !== yearLevel)
+      return res.status(400).json({ message: "That course, year, and section is no longer available." });
+
+    const [[existingUser]] = await db.query(
+      "SELECT id FROM users WHERE student_number = ? LIMIT 1",
+      [studentNumber]
+    );
+    if (existingUser)
+      return res.status(409).json({ message: "An account with this student number already exists." });
+    const [[existingRequest]] = await db.query(
+      "SELECT id FROM registration_requests WHERE student_number = ? AND status = 'pending' LIMIT 1",
+      [studentNumber]
+    );
+    if (existingRequest)
+      return res.status(409).json({ message: "A registration request for this student number is already pending." });
+
+    const initialPassword = derivePassword({
+      birth_date: birthDate,
+      full_name: name,
+      student_number: studentNumber,
+    });
+    const passwordHash = await bcrypt.hash(initialPassword, 10);
+    await db.query(
+      `INSERT INTO registration_requests
+        (student_number, full_name, birth_date, course_id, section_id, year_level, password_hash,
+          accepted_terms_at, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', NOW())`,
+      [studentNumber, name, birthDate, courseId, sectionId, yearLevel, passwordHash]
+    );
+    res.status(201).json({ message: "Registration submitted. An administrator must approve your account before you can log in." });
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY")
+      return res.status(409).json({ message: "That student number is already registered." });
+    if (err.code === "ER_NO_SUCH_TABLE")
+      return res.status(503).json({ message: "Registration requests are not available yet. Please contact an administrator." });
+    res.status(500).json({ message: "Unable to submit registration." });
+  }
+});
 
 // Enrollment states that revoke network privilege — a student in one of these
 // cannot log in. They come from a semester transition, which also force-disconnects
@@ -25,13 +124,15 @@ const NO_ACCESS_ENROLLMENT = ["dropped", "loa", "graduated"];
 
 // POST /api/auth/login
 router.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, accepted_terms } = req.body;
   // Guard before bcrypt.compare — it throws on an undefined password. An unknown
   // username short-circuits at the lookup below and never reaches it, so this only
   // ever bit a request naming a real account with no password field: a 500 for
   // what is plainly a bad request.
   if (!username || !password)
     return res.status(400).json({ message: "Username and password are required." });
+  if (accepted_terms !== true)
+    return res.status(400).json({ message: "Accept the Terms and Policy before logging in." });
   // Stored and handed to the router in one spelling — see utils/ip.js. Raw
   // `req.ip` is IPv4-mapped IPv6 here, which the router refuses.
   const clientIp = normalizeIp(req.ip);

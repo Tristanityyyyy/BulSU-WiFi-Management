@@ -29,6 +29,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [policyAccepted, setPolicyAccepted] = useState(false);
   // Which sign-in tab is showing: "student" or "staff". Visitor is a separate page.
   const [audience, setAudience] = useState("student");
   const [error, setError] = useState("");
@@ -127,7 +128,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await axios.post(`${API_BASE}/auth/login`, { username, password });
+      const res = await axios.post(`${API_BASE}/auth/login`, { username, password, accepted_terms: policyAccepted });
       const { token, role, full_name, policy, must_change_password } = res.data;
       setAccount({ fullName: full_name, role, policy });
 
@@ -398,12 +399,32 @@ export default function LoginPage() {
             className="w-full border border-slate-200 rounded-xl px-3 py-2.5 mb-6 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition"
             required
           />
-          <Button type="submit" disabled={loading}>
+          <label className="flex items-start gap-2 text-xs text-gray-600 mb-4">
+            <input
+              type="checkbox"
+              checked={policyAccepted}
+              onChange={(event) => setPolicyAccepted(event.target.checked)}
+              className="mt-0.5 accent-pink-600"
+              required
+            />
+            <span>I agree to the Terms and BulSU Acceptable Use Policy.</span>
+          </label>
+          <Button type="submit" disabled={loading || !policyAccepted}>
             {loading ? "Connecting..." : "Connect to Wi-Fi"}
           </Button>
         </form>
 
         <div className="mt-4 border-t border-slate-100 pt-4 text-center">
+          <p className="text-sm text-gray-600 mb-2">
+            New student?{" "}
+            <button
+              type="button"
+              onClick={() => navigate("/register")}
+              className="text-pink-600 font-semibold hover:text-pink-700 hover:underline"
+            >
+              Create an account
+            </button>
+          </p>
           <button
             type="button"
             onClick={() => navigate("/guest")}
@@ -421,9 +442,6 @@ export default function LoginPage() {
             Check my data usage without connecting
           </button>
         </div>
-        <p className="text-center text-xs text-gray-400 mt-3">
-          By connecting you agree to the BulSU Acceptable Use Policy.
-        </p>
       </Card>
     </PageBackground>
   );
