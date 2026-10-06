@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Save, Gauge, Database, Timer, Smartphone, BellRing, GraduationCap, Users2, CalendarRange, Layers, X, SunMoon, Sun, Moon, Monitor, UserCog } from "lucide-react";
+import { Save, Gauge, Database, Timer, Smartphone, BellRing, GraduationCap, Users2, CalendarRange, Layers, X, SunMoon, Sun, Moon, Monitor, UserCog, ShieldCheck } from "lucide-react";
 import adminApi from "./adminApi";
 import { useTheme } from "../../theme";
 import LoadingSpinner from "../ui/LoadingSpinner";
@@ -20,6 +20,8 @@ const DEFAULTS = {
   // which is what gives an emergency priority something to take precedence in.
   // 0 = no total ceiling, which is how this ran before the setting existed.
   uplink_total_mbps: 0,
+  adguard_filter_enabled: "false",
+  adguard_dns_ip: "",
   data_cap_gb_student: 1,        data_cap_gb_faculty: 0,
   data_cap_gb_staff: 0,
   // Not a daily cap and not per role: the total a single guest voucher is
@@ -48,6 +50,7 @@ const NAV_GROUPS = [
       // Only low-balance warnings are left in this section while the emergency
       // priority card is hidden, so the tab drops "& Priority" to match.
       { key: "alerts", label: SHOW_EMERGENCY ? "Alerts & Priority" : "Alerts", icon: BellRing },
+      { key: "adguard", label: "Website Filtering", icon: ShieldCheck },
     ],
   },
   {
@@ -79,7 +82,7 @@ const THEME_OPTIONS = [
   { value: "system", label: "System", icon: Monitor, desc: "Follows your device" },
 ];
 
-const NETWORK_SECTIONS = ["bandwidth", "datacap", "timeout", "devicepolicy", "alerts"];
+const NETWORK_SECTIONS = ["bandwidth", "datacap", "timeout", "devicepolicy", "alerts", "adguard"];
 
 export default function AdminSettings() {
   const { theme, setTheme } = useTheme();
@@ -124,7 +127,15 @@ export default function AdminSettings() {
     setSaving(true);
     setError("");
     try {
-      await adminApi.put("/admin/settings", settings);
+      const response = await adminApi.put("/admin/settings", {
+        ...settings,
+        _apply_adguard: activeSection === "adguard",
+      });
+      if (response.data?.adguardRouterApplied === false) {
+        setDirty(true);
+        setError(`Settings were saved, but MikroTik did not apply AdGuard: ${response.data.adguardRouterMessage || "check router connectivity and try again."}`);
+        return;
+      }
       setSaved(true);
       setDirty(false);
     } catch (err) {

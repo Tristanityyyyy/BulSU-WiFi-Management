@@ -1,9 +1,10 @@
 const router = require('express').Router();
+const { isIP } = require('node:net');
 const db = require('../../db');
 const bcrypt = require('bcrypt');
 const { logAudit, ACTIONS } = require('../../utils/auditLog');
 const { verifyOwnPassword } = require('../../utils/verifyOwnPassword');
-const { ensureParentQueue } = require('../../utils/routeros');
+const { ensureParentQueue, ensureAdGuardDns, isRouterAddress } = require('../../utils/routeros');
 const { getUplinkTotalMbps } = require('../../utils/settings');
 
 // A catalog entry referenced by any user (incl. soft-deleted) or by the permanent
@@ -437,13 +438,45 @@ registerNamedCatalogRoutes({
 // PUT /api/admin/settings
 router.put('/', async (req, res) => {
   try {
-    const entries = Object.entries(req.body);
+    const entries = Object.entries(req.body).filter(([key]) => key !== '_apply_adguard');
+    const forceAdguardApply = req.body._apply_adguard === true;
     if (entries.length === 0)
       return res.status(400).json({ message: 'No settings provided.' });
+
+    const adguardKeys = ['adguard_filter_enabled', 'adguard_dns_ip'];
+    const adguardSubmitted = entries.some(([key]) => adguardKeys.includes(key));
+    const [adguardRows] = adguardSubmitted
+      ? await db.query('SELECT `key`, `value` FROM settings WHERE `key` IN (?, ?)', adguardKeys)
+      : [[]];
+    const previousAdguard = Object.fromEntries(adguardRows.map(({ key, value }) => [key, value]));
+    const submittedAdguard = Object.fromEntries(entries.filter(([key]) => adguardKeys.includes(key)));
+    const enabledValue = submittedAdguard.adguard_filter_enabled ?? previousAdguard.adguard_filter_enabled ?? 'false';
+    const enabledText = String(enabledValue).toLowerCase();
+    if (enabledText !== 'true' && enabledText !== 'false') {
+      return res.status(400).json({ message: 'AdGuard filtering must be enabled or disabled.' });
+    }
+    const adguardEnabled = enabledText === 'true';
+    const adguardIp = String(submittedAdguard.adguard_dns_ip ?? previousAdguard.adguard_dns_ip ?? '').trim();
+    if (adguardEnabled && isIP(adguardIp) !== 4) {
+      return res.status(400).json({ message: 'Enter a valid AdGuard Home IPv4 address before enabling student filtering.' });
+    }
+    if (adguardEnabled && isRouterAddress(adguardIp)) {
+      return res.status(400).json({ message: 'AdGuard Home must use a different address from the MikroTik router.' });
+    }
+
+    if (Object.hasOwn(submittedAdguard, 'adguard_dns_ip')) {
+      submittedAdguard.adguard_dns_ip = String(submittedAdguard.adguard_dns_ip || '').trim();
+    }
+    const previousEnabled = String(previousAdguard.adguard_filter_enabled || 'false').toLowerCase() === 'true';
+    const adguardChanged = adguardKeys.some((key) =>
+      Object.hasOwn(submittedAdguard, key) && String(submittedAdguard[key] ?? '') !== String(previousAdguard[key] ?? '')
+    );
+
     for (const [key, value] of entries) {
+      const storedValue = key === 'adguard_dns_ip' ? String(value || '').trim() : value;
       await db.query(
         'INSERT INTO settings (`key`, `value`) VALUES (?,?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
-        [key, value]
+        [key, storedValue]
       );
     }
     await logAudit(req, {
@@ -466,7 +499,23 @@ router.put('/', async (req, res) => {
       );
     }
 
-    res.json({ ok: true });
+    let adguardRouterApplied;
+    let adguardRouterMessage;
+    if (forceAdguardApply || (adguardSubmitted && adguardChanged && (adguardEnabled || previousEnabled))) {
+      const [students] = adguardEnabled
+        ? await db.query(
+          `SELECT DISTINCT s.ip_address
+             FROM sessions s
+             JOIN users u ON u.id = s.user_id
+            WHERE s.status = 'active' AND u.role = 'student' AND s.ip_address IS NOT NULL`
+        )
+        : [[]];
+      const result = await ensureAdGuardDns(adguardEnabled, adguardIp, students.map((row) => row.ip_address));
+      adguardRouterApplied = result.ok;
+      adguardRouterMessage = result.message;
+    }
+
+    res.json({ ok: true, adguardRouterApplied, adguardRouterMessage });
   } catch (err) {
     res.status(500).json({ message: 'Failed to save settings.' });
   }

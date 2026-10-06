@@ -272,7 +272,7 @@ router.post("/login", async (req, res) => {
       // spent at exactly the limits the emergency was declared to lift.
       const roleLimits = await getRoleBandwidth(user.role);
       const limits = grant === undefined ? roleLimits : emergencyLimitsFor(roleLimits, grant);
-      const granted = await grantAccess(clientIp, session.insertId, "session", limits);
+      const granted = await grantAccess(clientIp, session.insertId, "session", limits, user.role);
       if (granted) {
         await db.query(
           "INSERT INTO active_queues (session_id, user_id, ip_address, queue_id, last_bytes) VALUES (?,?,?,?,0)",

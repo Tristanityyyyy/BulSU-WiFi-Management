@@ -1,4 +1,5 @@
 const { RouterOSAPI } = require("node-routeros");
+const { isIP } = require("node:net");
 const { normalizeIp, isGrantableIp } = require("./ip");
 
 // Leaving MIKROTIK_HOST unset disables this feature entirely — every export
@@ -7,6 +8,9 @@ const { normalizeIp, isGrantableIp } = require("./ip");
 const ENABLED = !!process.env.MIKROTIK_HOST;
 const ACCESS_MODE = process.env.MIKROTIK_ACCESS_MODE || "hotspot_ip_binding";
 const TAG_PREFIX = "bulsu-wifi:";
+const ADGUARD_STUDENT_LIST = "bulsu-adguard-students";
+const ADGUARD_STUDENT_TAG = `${TAG_PREFIX}adguard-student`;
+const ADGUARD_RULE_PREFIX = `${TAG_PREFIX}adguard-dns:`;
 
 // The queue every client queue hangs under.
 //
@@ -185,7 +189,7 @@ function isOursToReuse(binding) {
   return String((binding && binding.comment) || "").startsWith(TAG_PREFIX);
 }
 
-async function grantAccess(rawIp, id, kind = "session", limits = null) {
+async function grantAccess(rawIp, id, kind = "session", limits = null, role = null) {
   if (!ENABLED) return null;
   // Callers hand us whatever they hold: Express's `req.ip` on a dual-stack
   // listener, or an ip_address column written before that was normalised. Both
@@ -212,6 +216,7 @@ async function grantAccess(rawIp, id, kind = "session", limits = null) {
   const tag = `${TAG_PREFIX}${kind}-${id}`;
   try {
     return await withConnection(async (conn) => {
+      await syncStudentDnsAddress(conn, ip, role === "student");
       if (ACCESS_MODE === "hotspot_ip_binding") {
         const existing = await conn.write("/ip/hotspot/ip-binding/print", [`?address=${ip}`]);
         if (existing[0] && !isOursToReuse(existing[0])) {
@@ -276,6 +281,8 @@ async function revokeAccess(rawIp, queueId) {
       // failure — which makes callers keep the queue_id and retry forever.
       if (!isGrantableIp(ip)) return;
 
+      await syncStudentDnsAddress(conn, ip, false);
+
       if (ACCESS_MODE === "hotspot_ip_binding") {
         const existing = await conn.write("/ip/hotspot/ip-binding/print", [`?address=${ip}`]);
         // Only remove bindings we created — never touch one an admin added by hand.
@@ -291,6 +298,125 @@ async function revokeAccess(rawIp, queueId) {
   } catch (err) {
     console.error("MikroTik revokeAccess failed:", err.message);
     return false;
+  }
+}
+
+async function syncStudentDnsAddress(conn, ip, isStudent, strict = false) {
+  if (!isGrantableIp(ip)) return;
+  const readEntries = conn.write("/ip/firewall/address-list/print", [
+    `?list=${ADGUARD_STUDENT_LIST}`,
+    `?address=${ip}`,
+  ]);
+  const entries = strict ? await readEntries : await readEntries.catch(() => []);
+  const owned = entries.filter((entry) => entry.comment === ADGUARD_STUDENT_TAG);
+
+  if (isStudent) {
+    if (owned.length) return;
+    if (entries.length) return;
+    const addEntry = conn.write("/ip/firewall/address-list/add", [
+      `=list=${ADGUARD_STUDENT_LIST}`,
+      `=address=${ip}`,
+      `=comment=${ADGUARD_STUDENT_TAG}`,
+    ]);
+    if (strict) await addEntry;
+    else await addEntry.catch((err) => console.warn("MikroTik AdGuard student address update failed:", err.message));
+    return;
+  }
+
+  for (const entry of owned) {
+    await conn.write("/ip/firewall/address-list/remove", [`=.id=${entry[".id"]}`]).catch(() => {});
+  }
+}
+
+// Routes only student DNS requests through AdGuard. Other roles and router-owned
+// DNS traffic are left alone; all rules and address-list entries are tagged so
+// this feature never adopts or removes manually managed RouterOS configuration.
+async function ensureAdGuardDns(enabled, rawIp, studentIps = []) {
+  if (!ENABLED) return { ok: false, message: "MikroTik integration is disabled." };
+  const ip = String(rawIp || "").trim();
+  if (enabled && isIP(ip) !== 4) return { ok: false, message: "AdGuard requires a valid IPv4 address." };
+  if (enabled && isRouterAddress(ip)) return { ok: false, message: "AdGuard Home cannot use the MikroTik router address." };
+
+  try {
+    await withConnection(async (conn) => {
+      const current = await conn.write("/ip/firewall/address-list/print", [
+        `?list=${ADGUARD_STUDENT_LIST}`,
+      ]);
+      const desired = new Set(studentIps.map(normalizeIp).filter(isGrantableIp));
+
+      for (const entry of current) {
+        if (entry.comment !== ADGUARD_STUDENT_TAG) continue;
+        if (!enabled || !desired.has(normalizeIp(entry.address))) {
+          await conn.write("/ip/firewall/address-list/remove", [`=.id=${entry[".id"]}`]);
+        }
+      }
+      if (enabled) {
+        const present = new Set(current.map((entry) => normalizeIp(entry.address)));
+        for (const studentIp of desired) {
+          if (present.has(studentIp)) continue;
+          await syncStudentDnsAddress(conn, studentIp, true, true);
+        }
+      }
+
+      const rules = await conn.write("/ip/firewall/nat/print", []);
+      for (const protocol of ["udp", "tcp"]) {
+        const desiredRules = [
+          {
+            comment: `${ADGUARD_RULE_PREFIX}${protocol}`,
+            fields: [
+              "=chain=dstnat",
+              "=action=dst-nat",
+              `=protocol=${protocol}`,
+              "=dst-port=53",
+              `=src-address-list=${ADGUARD_STUDENT_LIST}`,
+              `=dst-address=!${ip}`,
+              `=to-addresses=${ip}`,
+              "=to-ports=53",
+            ],
+          },
+          {
+            comment: `${ADGUARD_RULE_PREFIX}srcnat:${protocol}`,
+            fields: [
+              "=chain=srcnat",
+              "=action=masquerade",
+              `=protocol=${protocol}`,
+              "=dst-port=53",
+              `=src-address-list=${ADGUARD_STUDENT_LIST}`,
+              `=dst-address=${ip}`,
+            ],
+          },
+        ];
+
+        for (const desiredRule of desiredRules) {
+          const matches = rules.filter((rule) => rule.comment === desiredRule.comment);
+          if (!enabled) {
+            for (const rule of matches) {
+              await conn.write("/ip/firewall/nat/remove", [`=.id=${rule[".id"]}`]);
+            }
+            continue;
+          }
+
+          if (matches.length) {
+            await conn.write("/ip/firewall/nat/set", [
+              `=.id=${matches[0][".id"]}`,
+              ...desiredRule.fields,
+            ]);
+            for (const duplicate of matches.slice(1)) {
+              await conn.write("/ip/firewall/nat/remove", [`=.id=${duplicate[".id"]}`]);
+            }
+          } else {
+            await conn.write("/ip/firewall/nat/add", [
+              ...desiredRule.fields,
+              `=comment=${desiredRule.comment}`,
+            ]);
+          }
+        }
+      }
+    });
+    return { ok: true };
+  } catch (err) {
+    console.error("MikroTik AdGuard DNS update failed:", err.message);
+    return { ok: false, message: err.message };
   }
 }
 
@@ -607,4 +733,4 @@ async function setQueueLimit(queueId, limits) {
   }
 }
 
-module.exports = { grantAccess, revokeAccess, readQueueState, readClientMac, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, isRouterAddress, DEFAULT_QUEUE_PRIORITY, PARENT_QUEUE_NAME, ensureParentQueue, ENABLED };
+module.exports = { grantAccess, revokeAccess, readQueueState, readClientMac, readNetworkPresence, reapOrphanGrants, setQueueLimit, toMaxLimit, toPriority, maxLimitMatches, queueMatchesLimits, isOursToReuse, isRouterAddress, DEFAULT_QUEUE_PRIORITY, PARENT_QUEUE_NAME, ensureParentQueue, ensureAdGuardDns, ENABLED };

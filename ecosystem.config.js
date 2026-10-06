@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "bulsu-backend",
-      cwd: "C:\\Users\\tristan\\bulsu-wifi-system\\bulsu-wifi-backend",
+      cwd: "C:\\Users\\aljur\\BulSU-WiFi-Management\\bulsu-wifi-backend",
       script: "server.js",
       watch: false,
       env: {
@@ -12,10 +12,11 @@ module.exports = {
     },
     {
       name: "bulsu-frontend",
-      cwd: "C:\\Users\\tristan\\bulsu-wifi-system\\bulsu-wifi-frontend",
+      cwd: "C:\\Users\\aljur\\BulSU-Wifi-Management\\bulsu-wifi-frontend",
       script: "node_modules/vite/bin/vite.js",
       args: "--host",
       watch: false
     }
   ]
 }
+

@@ -1,4 +1,4 @@
-import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren, Ticket, Router } from "lucide-react";
+import { Gauge, Database, Timer, Smartphone, WifiOff, BellRing, Siren, Ticket, Router, ShieldCheck } from "lucide-react";
 import { SHOW_EMERGENCY } from "../../../config/features";
 import SectionCard from "./SectionCard";
 import { ROLE_LABELS } from "../../../constants/roles";
@@ -271,6 +271,52 @@ export default function NetworkSettingsSection({ activeSection, settings, onChan
             ]}
           />
         </div>
+      )}
+      {activeSection === "adguard" && (
+        <SectionCard
+          icon={<ShieldCheck size={16} />}
+          title="Student Website Filtering"
+          hint="Routes DNS from authenticated student sessions through your AdGuard Home server. Faculty, staff, and guest sessions are not included.">
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="adguard-dns-ip" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                AdGuard Home server IPv4 address
+              </label>
+              <input
+                id="adguard-dns-ip"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="192.168.88.10"
+                value={settings.adguard_dns_ip ?? ""}
+                onChange={(e) => onChange("adguard_dns_ip", e.target.value)}
+                className="border border-slate-200 dark:border-wine-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent w-full max-w-xs transition"
+              />
+            </div>
+            <div>
+              <span className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Student filtering</span>
+              <div className="inline-flex rounded-lg border border-pink-200 dark:border-pink-900 overflow-hidden">
+                {[{ value: "true", label: "ON" }, { value: "false", label: "OFF" }].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={(settings.adguard_filter_enabled ?? "false") === option.value}
+                    onClick={() => onChange("adguard_filter_enabled", option.value)}
+                    className={`px-4 py-1.5 text-xs font-semibold transition ${
+                      (settings.adguard_filter_enabled ?? "false") === option.value
+                        ? "bg-pink-600 text-white"
+                        : "bg-white dark:bg-wine-900 text-gray-600 dark:text-gray-300 hover:bg-pink-50 dark:hover:bg-pink-950/40"
+                    }`}>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+              AdGuard Home must already be running at a stable address. Enable its adult-content blocklists there. This redirects standard DNS only; encrypted DNS and VPNs can bypass DNS filtering.
+            </p>
+          </div>
+        </SectionCard>
       )}
     </form>
   );

@@ -32,7 +32,7 @@ async function meterActiveQueues(bandwidth, priorities) {
       // Queue vanished (e.g. removed by hand in WinBox) — self-heal. Passing the
       // role's limits matters: recreating it uncapped would hand the account a
       // free pass on speed *and* silently stop the metering again.
-      const recreated = await grantAccess(row.ip_address, row.session_id, "session", limits);
+      const recreated = await grantAccess(row.ip_address, row.session_id, "session", limits, row.role);
       if (recreated) {
         await db.query(
           "UPDATE active_queues SET queue_id=?, last_bytes=0 WHERE session_id=?",

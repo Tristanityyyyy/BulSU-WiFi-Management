@@ -8,4 +8,5 @@ backups/
 *.md
 *.txt
 !README.md
+!/adguard-setup.md
 docs/
