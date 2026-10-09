@@ -28,7 +28,7 @@ function buildApprovalHtml({ fullName, role, accountId, temporaryPassword }, inc
 <body style="margin:0;padding:24px 12px;background-color:#f1f3f8;font-family:Arial,Helvetica,sans-serif;color:#172b4d;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:720px;margin:0 auto;background-color:#ffffff;border-radius:12px;overflow:hidden;">
     <tr>
-      <td style="padding:18px 28px;background-color:#fff8fc;background-image:linear-gradient(110deg,#f5dce9,#ffffff);border-bottom:4px solid #cc0068;">
+      <td style="padding:18px 28px;background-color:#f4b6d2;border-bottom:4px solid #cc0068;">
         <table role="presentation" cellspacing="0" cellpadding="0" border="0">
           <tr>
             <td style="padding-right:18px;vertical-align:middle;">${logo}</td>
@@ -88,7 +88,7 @@ function buildApprovalHtml({ fullName, role, accountId, temporaryPassword }, inc
       </td>
     </tr>
     <tr>
-      <td height="22" style="height:22px;background-color:#173653;background-image:linear-gradient(110deg,#d00068 0%,#d00068 17%,#173653 17%,#173653 100%);"></td>
+      <td height="22" style="height:22px;background-color:#f4b6d2;border-top:4px solid #cc0068;"></td>
     </tr>
   </table>
 </body>
